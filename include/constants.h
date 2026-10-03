@@ -18,7 +18,7 @@ namespace constants{
     //elevator motors
     constexpr int leftElevator {6};
     constexpr int rightElevator {-19};
-    constexpr double maxMotorRotations {6.4};
+    constexpr double elevatorMaxMotorRotations {6.4};
 
     //end effector motors
     constexpr int leftEndEffectorMotor {10};

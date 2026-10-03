@@ -1,6 +1,7 @@
 #include "drivetrain.h"
 #include "constants.h"
 #include "api.h"
+#include "elevator.h"
 #include "lemlib/api.hpp"
 #include <cmath>
 
@@ -138,11 +139,23 @@ namespace drivetrain{
         }
     }
 
-    void lemlibArcade(){
-        int leftY {constants::master.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y)};
-        int rightX {constants::master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X)};
 
-        chassis.arcade(leftY, rightX);
+    void lemlibArcade(){
+        double multiplier {1};
+        double maxElevatorRotations {constants::elevatorMaxMotorRotations};
+        double currentElevatorRotations {elevator::getElevatorRotations()};
+
+        double scalingConstant {2};
+
+        double multiplier = ((constants::elevatorMaxMotorRotations + scalingConstant) -  currentElevatorRotations) / (maxElevatorRotations);
+
+        double leftY {constants::master.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y)};
+        double rightX {constants::master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X)};
+
+        double adjustedY {leftY * multiplier};
+        double adjustedX {rightX * multiplier};
+
+        chassis.arcade(adjustedY, adjustedX);
     }
 
     void drive(){

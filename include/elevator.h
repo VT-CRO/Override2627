@@ -13,4 +13,5 @@ namespace elevator{
 
     bool isElevatorStowed();
 
+    double getElevatorRotations();
 }

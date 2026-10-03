@@ -8,12 +8,15 @@ namespace elevator{
 
     pros::MotorGroup elevatorMotors ({constants::rightElevator, constants::leftElevator}, constants::elevatorGearRatio);
 
+    enum class Mode { Homing, Stowed, Positioning, Returning, ManualHoming, Manual, ManualHold };
+
+    double currentElevatorMotorRotations {0};
+
     //Homing: timed home, only used on startup
     //Returning: driving to encoder zero with position control (B tap)
     //ManualHoming: driving down for as long as the driver holds B, zeroes on release
     //Manual: driving up/down for as long as the driver holds an arrow (after a 300 ms hold)
-    //ManualHold: arrow released, holding wherever manual stopped
-    enum class Mode { Homing, Stowed, Positioning, Returning, ManualHoming, Manual, ManualHold };
+    //ManualHold: arrow released, holding wherever manual stoppe
 
     static Mode currentMode {Mode::Homing};
     static int level {0};
@@ -43,7 +46,7 @@ namespace elevator{
 
         //top level sits exactly on the last major increment, nothing to interpolate
         if(section == lastAnchor){
-            return constants::elevatorMajorIncrements[lastAnchor] * constants::maxMotorRotations;
+            return constants::elevatorMajorIncrements[lastAnchor] * constants::elevatorMaxMotorRotations;
         }
 
         double start {constants::elevatorMajorIncrements[section]};
@@ -52,7 +55,7 @@ namespace elevator{
         //cast to double so 1/3 and 2/3 don't round down to 0
         double fraction {start + (static_cast<double>(step) / constants::elevatorStepsPerSection) * (end - start)};
 
-        return fraction * constants::maxMotorRotations;
+        return fraction * constants::elevatorMaxMotorRotations;
     }
 
     void manualCommand(){
@@ -82,6 +85,8 @@ namespace elevator{
     }
 
     void update(){
+        currentElevatorMotorRotations = elevatorMotors.get_position();
+
         switch(currentMode){
             //braces are needed around a case that declares variables
             case Mode::Homing: {
@@ -145,7 +150,7 @@ namespace elevator{
             case Mode::Manual: {
                 //drive with the arrow, but stop at the top and at zero (B hold is for going below zero)
                 double position {elevatorMotors.get_position()};
-                bool atTop {position >= constants::maxMotorRotations && manualPower > 0};
+                bool atTop {position >= constants::elevatorMaxMotorRotations && manualPower > 0};
                 bool atBottom {position <= 0 && manualPower < 0};
 
                 if(atTop || atBottom){
@@ -314,5 +319,9 @@ namespace elevator{
             return false;
         }
         return true;
+    }
+
+    double getElevatorRotations(){
+        return currentElevatorMotorRotations;
     }
 }
