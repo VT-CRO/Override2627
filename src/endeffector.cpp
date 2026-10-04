@@ -15,6 +15,10 @@ namespace endeffector{
 
     Mode currentMode {Mode::Homing};
 
+    //set when the driver changes the prongs with R1. the score command checks this and stops
+    //touching the prongs so the driver can override it at any point
+    static bool driverOverride {false};
+
     //angles are 0 = down, 90 = PickUp, but the encoder is zeroed at the top hard stop (180),
     //so convert a prong angle to a motor position before sending it to move_absolute
     //also clamps the angle to [0, top setpoint] first: there is no bottom stop, so a bad target
@@ -75,7 +79,6 @@ namespace endeffector{
         }
     }
     void handleInputs(){
-        bool LBPressed {constants::master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_L1) != 0};
         bool RBPressed {constants::master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_R1) != 0};
 
         switch(currentMode){
@@ -83,37 +86,35 @@ namespace endeffector{
             break;   
             
             case(Mode::Stowed):
-            if(LBPressed){
-                break;
-            }
-            else if(RBPressed){
+            if(RBPressed){
                 currentMode = Mode::PickUp;
+                driverOverride = true;
                 break;
             }
             break;
             
             case(Mode::PickUp):
-            if(LBPressed){
-                currentMode = Mode::Stowed;
-            }
-            else if(RBPressed){
+            if(RBPressed){
                 currentMode = Mode::High;
+                driverOverride = true;
                 break;
             }
             break;
 
             case(Mode::High):
-            if(LBPressed){
+            //R1 toggles back down to PickUp, so R1 flips between PickUp and High
+            if(RBPressed){
                 currentMode = Mode::PickUp;
-                break;
-            }
-            else if(RBPressed){
-                break;
+                driverOverride = true;
             }
             break;
 
             case(Mode::Top):
-            //only the score command sends the prongs here, so R1/L1 are ignored until it sends them back to PickUp
+            //only the score command sends the prongs here. R1 overrides it and goes back to PickUp
+            if(RBPressed){
+                currentMode = Mode::PickUp;
+                driverOverride = true;
+            }
             break;
         }
     }
@@ -129,5 +130,14 @@ namespace endeffector{
 
     void requestPickUp(){
         currentMode = Mode::PickUp;
+    }
+
+    //true if the driver pressed R1 since the last clearDriverOverride()
+    bool driverOverrode(){
+        return driverOverride;
+    }
+
+    void clearDriverOverride(){
+        driverOverride = false;
     }
 }
