@@ -9,10 +9,6 @@
 
 namespace drivetrain{
 
-        enum class Mode {tank, customArcade, lemlibArcade};
-
-    static Mode currentMode {Mode::lemlibArcade};
-
     static pros::MotorGroup leftMotorGroup(
         {constants::leftMotorOne,
         constants::leftMotorTwo,
@@ -99,62 +95,6 @@ namespace drivetrain{
         return current + std::clamp(target - current, -maxStep, maxStep);
     }
 
-    void tankDrive(){
-        //left side of bot
-        leftMotorGroup.move(constants::master.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y));
-
-        //right side of bot
-        rightMotorGroup.move(constants::master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_Y));
-    }
-
-    //blend movements into two sticks
-    void customArcadeDrive(){
-        //initalize as one to keep value same if within bounds of [-127, 127]
-        double multiplier {1};
-        
-        //take in the stick vlaue for each stick and blend them
-        //not using brace initalization b/c of warnings thrown
-        double leftSum = constants::master.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y) + constants::master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
-        //left is y + x
-        double rightSum = constants::master.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y) - constants::master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
-        //right is y - x
-
-        //handels wrapping by dividing by same multiple to maintin users intended input for each movement 
-        if(leftSum > 127 || leftSum < -127){
-            multiplier = std::abs(127/leftSum);
-        }
-        else if(rightSum > 127 || rightSum < -127){
-            multiplier = std::abs(127/rightSum);
-        }
-
-        //takes the sum of the cordinates for each sides of the stick and handels overflow by keeping ratio and maxing each side out at [-127, 127]
-        leftMotorGroup.move(std::round(leftSum * multiplier));
-
-        rightMotorGroup.move(std::round(rightSum * multiplier));
-    }
-
-    void userSwitchingModes(){
-        if(constants::master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_X)){
-            switch(currentMode){
-                case Mode::tank:
-                currentMode = Mode::customArcade;
-                constants::master.rumble(".");
-                break;
-
-                case Mode::customArcade:
-                constants::master.rumble(".");
-                currentMode = Mode::lemlibArcade;
-                break;
-
-                case Mode::lemlibArcade:
-                constants::master.rumble(".");
-                currentMode = Mode::tank;
-                break;
-            }  
-        }
-    }
-
-
     void lemlibArcade(){
         double multiplier {1};
         double maxElevatorRotations {constants::elevatorMaxMotorRotations};
@@ -208,20 +148,8 @@ namespace drivetrain{
     }
 
     void drive(){
-        switch(currentMode){
-            case Mode::tank:
-            tankDrive();
-            break;
-
-            case Mode::customArcade:
-            customArcadeDrive();
-            break;
-
-            case Mode::lemlibArcade:
-            lemlibArcade();
-            break;
+        lemlibArcade();
         }
-    }
 
     void init(){
         leftMotorGroup.set_brake_mode_all(pros::E_MOTOR_BRAKE_COAST);
