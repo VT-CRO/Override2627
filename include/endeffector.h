@@ -12,4 +12,8 @@ namespace endeffector{
     void requestPickUp();
 
     void requestTop();
+
+    bool driverOverrode();
+
+    void clearDriverOverride();
 }
