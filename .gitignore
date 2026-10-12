@@ -15,3 +15,7 @@ temp.log
 temp.errors
 *.ini
 .d/
+project.pros.bak
+
+# MacOS
+.DS_Store
