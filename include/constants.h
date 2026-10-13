@@ -20,9 +20,8 @@ namespace constants{
     constexpr int rightElevator {-19};
     constexpr double elevatorMaxMotorRotations {6.4};
 
-    //end effector motors
-    constexpr int leftEndEffectorMotor {10};
-    constexpr int rightEndEffectorMotor {}; //not plugged in need to find a port
+    //end effector (claw + wheels, one motor)
+    constexpr int endEffectorMotor {10};
 
     //--------  drivetrain constants  -------- 
     //driver control acceleration limits, same idea as the elevator: the voltage may only change so fast.
@@ -40,16 +39,34 @@ namespace constants{
     constexpr std::array<double, 5> elevatorMajorIncrements {0.0, 0.25, 0.5, 0.75, 1.0};
     constexpr int elevatorStepsPerSection {3}; 
 
+    //score end height: how far above the stowed position the elevator stops after a score.
+    //TODO measure elevatorInchesPerRotation (claw height gained per motor rotation); 6.0 is a placeholder
+    constexpr double elevatorScoreEndInches {4};
+    constexpr double elevatorInchesPerRotation {6.0};
+    //how far the elevator lifts when the claw detects a piece
+    constexpr double elevatorPieceLiftInches {7.0};
+
     //voltage to drive down with for both the startup home and the hold-B home, in volts (-12 to 12)
     constexpr double elevatorHomingVolts {-127.0/2};
     constexpr int elevatorHomingTimeMs {250};
     constexpr double elevatorZeroTolerance {0.5};
     constexpr int elevatorReturnTimeoutMs {4000};
     constexpr int elevatorHoldToHomeMs {300};
+    //hold-B home stops and zeroes on its own when the elevator stalls on the bottom stop: it must be slower than
+    //elevatorHomeStallRpm for elevatorHomeStallConfirmMs, checked only after elevatorHomeGraceMs of pushing.
+    //if it never stalls it gives up after elevatorManualHomeTimeoutMs without zeroing. TODO tune
+    constexpr uint32_t elevatorHomeGraceMs {300};
+    constexpr double elevatorHomeStallRpm {5.0};
+    constexpr uint32_t elevatorHomeStallConfirmMs {150};
+    constexpr uint32_t elevatorManualHomeTimeoutMs {3000};
 
     //elevator positioning
     //power while holding L1/L2 in manual, -127 to 127 for move()
     constexpr int elevatorManualPower {127};
+    //manual down (L2) slows as it nears zero so it stops at the stow position instead of coasting below it:
+    //within this many rotations of zero the power scales down to the min fraction. TODO tune
+    constexpr double elevatorManualBottomTaperRotations {0.8};
+    constexpr double elevatorManualBottomMinScale {0.2};
 
     //elevator voltage control: one voltage is computed and sent to BOTH motors so they can't fight each other.
     //TODO tune all of these on the robot
@@ -71,20 +88,25 @@ namespace constants{
     constexpr double elevatorResettleTolerance {0.15};
 
     //--------  endEffector constants  -------- 
-    //max speed 200 rpm
-    constexpr int endEffectorMoveVelocity {50}; 
+    //voltages in millivolts (12000 = full). the claw and wheels share one motor, so power decides what moves:
+    //about 25/127 (~2900 mV) moves only the claw, more than that also spins the wheels. TODO tune
+    constexpr double endEffectorIntakeMv {12000.0};
+    //release: opens the claw only (low power so the wheels stay still) for a short time, so it doesn't open all the way
+    constexpr double endEffectorReleaseMv {2900.0};
+    constexpr std::uint32_t endEffectorReleaseMs {600};
+    //hold power once a piece is in: keep it small so a stalled motor doesn't overheat. TODO tune
+    constexpr double endEffectorHoldMv {2500};
+    //piece detection while intaking: motor current (mA) above this for the confirm time means it stalled on a piece.
+    //the grace time skips the current spike while the motor spins up. confirm is short so the elevator lift
+    //starts almost right away. TODO tune, read get_current_draw() during an intake
+    //from logged intakes: spinning in air peaks ~2375 mA in the first 200 ms, then stays under ~2115 mA. a piece sits at ~2250-2550 mA
+    constexpr int endEffectorStallCurrentMa {2200};
+    constexpr std::uint32_t endEffectorIntakeGraceMs {250};
+    constexpr std::uint32_t endEffectorStallConfirmMs {40};
+    //very light slew: 0 to full in ~0.1 s, just enough to soften hard reversals. raise to be gentler
+    constexpr double endEffectorVoltageSlewMvPerSec {120000.0};
 
-    //these are in terms of degress since vex is butt and makes it hareder for radians :(
-    constexpr int endEffectorBottomAngle {0};
-    constexpr int endEffectorHorizonatalDeg {60};
-    constexpr int endEffectorTopDeg {120};
-    constexpr int endEffectorHardStopDeg {190};
-    constexpr int endEffectorHomingTimeMs {1000};
-    constexpr int endEffectorHomingPower {40};
-
-    //--------  command constants  -------- 
-    //score: how long after R2 the prongs wait before dropping, in ms. the elevator starts coming down right away
-    constexpr std::uint32_t scoreDropDelayMs {750};
+    //--------  command constants  --------
 
 
     //misc

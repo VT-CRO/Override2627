@@ -11,6 +11,10 @@ namespace elevator{
 
     void requestStow();
 
+    void requestScoreEnd();
+
+    void requestLift(double inches);
+
     bool isElevatorStowed();
 
     double getElevatorRotations();

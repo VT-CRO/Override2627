@@ -1,143 +1,106 @@
 #include "constants.h"
 #include "api.h"
 #include "endeffector.h"
-#include "lemlib/api.hpp"
+#include "elevator.h"
 #include <cmath>
 #include <algorithm>
 
 namespace endeffector{
-    pros::Motor endEffector(constants::leftEndEffectorMotor, constants::endEffectorGears);
+    pros::Motor endEffector(constants::endEffectorMotor, constants::endEffectorGears);
 
-    static uint32_t homingStartTime {0};
-    static bool homed {false};
+    //one motor does both the claw and the wheels: Intake closes the claw and spins the wheels in,
+    //Hold keeps a little power on once a piece is in, Release opens the claw (low power, wheels stay still)
+    enum class Mode{Idle, Intake, Hold, Release};
 
-    enum class Mode{Homing, Stowed, PickUp, High, Top};
+    static Mode currentMode {Mode::Idle};
+    static uint32_t releaseStartTime {0};
+    static uint32_t intakeStartTime {0};
+    //when the current first went over the limit, 0 while it is under
+    static uint32_t highCurrentSince {0};
 
-    Mode currentMode {Mode::Homing};
-
-    //set when the driver changes the prongs with R1. the score command checks this and stops
-    //touching the prongs so the driver can override it at any point
-    static bool driverOverride {false};
-
-    //angles are 0 = down, 90 = PickUp, but the encoder is zeroed at the top hard stop (180),
-    //so convert a prong angle to a motor position before sending it to move_absolute
-    //also clamps the angle to [0, top setpoint] first: there is no bottom stop, so a bad target
-    //could otherwise swing the prongs past 0 into the robot
-    static double toMotorDeg(double angle){
-        double safeAngle {std::clamp(angle, static_cast<double>(constants::endEffectorBottomAngle),
-                                            static_cast<double>(constants::endEffectorTopDeg))};
-        return safeAngle - constants::endEffectorHardStopDeg;
-    }
+    //voltage we last sent (mV, slew limited) and when we last sent it
+    static double appliedVoltage {0};
+    static uint32_t lastVoltageTime {0};
 
     void init(){
-    endEffector.set_encoder_units_all(pros::MotorUnits::degrees);
-    endEffector.set_brake_mode_all(pros::E_MOTOR_BRAKE_HOLD);
-    endEffector.brake();
+        endEffector.set_brake_mode_all(pros::E_MOTOR_BRAKE_HOLD);
+        endEffector.brake();
     }
 
     void update(){
+        double targetMv {0};
         switch(currentMode){
-            case(Mode::Homing): {
+            case(Mode::Idle):
+            break;
 
-            if(homingStartTime == 0){
-                homingStartTime = pros::millis();
-            }
-
-            uint32_t elapsed {pros::millis() - homingStartTime};
-
-            if(elapsed < constants::endEffectorHomingTimeMs){
-                    //pushing up into the top hard stop
-                    endEffector.move(constants::endEffectorHomingPower);
+            case(Mode::Intake):
+            targetMv = constants::endEffectorIntakeMv;
+            //a piece stalls the motor, so the current stays high. ignore the spin up spike at the start,
+            //then require it to stay high for a moment before switching to the low hold power and lifting the elevator
+            if(pros::millis() - intakeStartTime > constants::endEffectorIntakeGraceMs
+               && endEffector.get_current_draw() > constants::endEffectorStallCurrentMa){
+                if(highCurrentSince == 0){
+                    highCurrentSince = pros::millis();
                 }
-                else{
-                    //pushed up long enough to be sitting on the top stop, zero here (0 = 180 deg)
-                    endEffector.move(0);
-                    endEffector.tare_position_all();
-                    homed = true;
-                    currentMode = Mode::PickUp;
+                if(pros::millis() - highCurrentSince > constants::endEffectorStallConfirmMs){
+                    currentMode = Mode::Hold;
+                    elevator::requestLift(constants::elevatorPieceLiftInches);
                 }
-                break;
             }
-            
-            case(Mode::Stowed):
-            endEffector.move_absolute(toMotorDeg(constants::endEffectorBottomAngle), constants::endEffectorMoveVelocity);
+            else{
+                highCurrentSince = 0;
+            }
             break;
 
-            case(Mode::PickUp):
-            endEffector.move_absolute(toMotorDeg(constants::endEffectorHorizonatalDeg), constants::endEffectorMoveVelocity);
+            case(Mode::Hold):
+            targetMv = constants::endEffectorHoldMv;
             break;
 
-            case(Mode::High):
-            endEffector.move_absolute(toMotorDeg(constants::endEffectorTopDeg), constants::endEffectorMoveVelocity);
-            break;
-
-            case(Mode::Top):
-            //the encoder is zeroed at the top hard stop, so 0 is the stop itself.
-            //skips toMotorDeg on purpose: its clamp would cap this at endEffectorTopDeg
-            endEffector.move_absolute(0, constants::endEffectorMoveVelocity);
+            case(Mode::Release):
+            if(pros::millis() - releaseStartTime >= constants::endEffectorReleaseMs){
+                currentMode = Mode::Idle;
+            }
+            else{
+                targetMv = -constants::endEffectorReleaseMv;
+            }
             break;
         }
+
+        uint32_t now {pros::millis()};
+        //first call, or we haven't run for a while: assume one 20 ms loop
+        double dtSec {(lastVoltageTime == 0 || now - lastVoltageTime > 100) ? 0.02 : (now - lastVoltageTime) / 1000.0};
+        lastVoltageTime = now;
+
+        double maxStep {constants::endEffectorVoltageSlewMvPerSec * dtSec};
+        appliedVoltage += std::clamp(targetMv - appliedVoltage, -maxStep, maxStep);
+
+        //hold the claw (and any game piece in it) once the voltage has ramped to 0
+        if(targetMv == 0 && appliedVoltage == 0){
+            endEffector.brake();
+        }
+        else{
+            endEffector.move_voltage(static_cast<int>(appliedVoltage));
+        }
     }
+
+    //R1 held: the claw intakes. it drops to low hold power by itself
+    //once a piece is in (and the elevator lifts), and keeps that after R1 is released. R2 (score) releases the piece
     void handleInputs(){
-        bool RBPressed {constants::master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_R1) != 0};
-
-        switch(currentMode){
-            case(Mode::Homing):
-            break;   
-            
-            case(Mode::Stowed):
-            if(RBPressed){
-                currentMode = Mode::PickUp;
-                driverOverride = true;
-                break;
-            }
-            break;
-            
-            case(Mode::PickUp):
-            if(RBPressed){
-                currentMode = Mode::High;
-                driverOverride = true;
-                break;
-            }
-            break;
-
-            case(Mode::High):
-            //R1 toggles back down to PickUp, so R1 flips between PickUp and High
-            if(RBPressed){
-                currentMode = Mode::PickUp;
-                driverOverride = true;
-            }
-            break;
-
-            case(Mode::Top):
-            //only the score command sends the prongs here. R1 overrides it and goes back to PickUp
-            if(RBPressed){
-                currentMode = Mode::PickUp;
-                driverOverride = true;
-            }
-            break;
+        if(constants::master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_R1) != 0){
+            currentMode = Mode::Intake;
+            intakeStartTime = pros::millis();
+            highCurrentSince = 0;
+        }
+        //released without a piece: stop. with a piece (Hold) it keeps holding
+        else if(constants::master.get_digital(pros::E_CONTROLLER_DIGITAL_R1) == 0 && currentMode == Mode::Intake){
+            currentMode = Mode::Idle;
         }
     }
 
-    //helpers for commands 
-    void requestStow(){
-        currentMode = Mode::Stowed;
+    //helpers for commands
+    void requestRelease(){
+        currentMode = Mode::Release;
+        releaseStartTime = pros::millis();
     }
 
-    void requestTop(){
-        currentMode = Mode::Top;
-    }
-
-    void requestPickUp(){
-        currentMode = Mode::PickUp;
-    }
-
-    //true if the driver pressed R1 since the last clearDriverOverride()
-    bool driverOverrode(){
-        return driverOverride;
-    }
-
-    void clearDriverOverride(){
-        driverOverride = false;
-    }
 }
