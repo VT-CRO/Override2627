@@ -3,6 +3,8 @@
 namespace elevator{
     void init();
 
+    void homeBlocking();
+
     void update();
 
     void handleInput();

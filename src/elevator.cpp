@@ -3,6 +3,7 @@
 #include "api.h"
 #include "lemlib/api.hpp"
 #include <cmath>
+#include <cstdio>
 #include <algorithm>
 #include <vector>
 
@@ -171,6 +172,22 @@ namespace elevator{
         startHoming();
     }
 
+    //motors only run once the robot is enabled, so this is called at the start of autonomous/opcontrol, not from init().
+    //blocks until the startup home finishes. restarts the timer in case a disable cut an earlier attempt short
+    void homeBlocking(){
+        if(homed){
+            return;
+        }
+        //same stall-detected home as hold-B, so it runs until it hits the bottom stop (timed out: not homed)
+        currentMode = Mode::ManualHoming;
+        level = 0;
+        manualHomeStartTime = 0;
+        while(currentMode == Mode::ManualHoming){
+            update();
+            pros::delay(20);
+        }
+    }
+
     void update(){
         //average both motors' encoders so one slipping motor doesn't skew the position
         std::vector<double> positions {elevatorMotors.get_position_all()};
@@ -263,17 +280,28 @@ namespace elevator{
                 uint32_t elapsed {pros::millis() - manualHomeStartTime};
 
                 appliedVoltage = 0;
-                elevatorMotors.move(constants::elevatorHomingVolts);
+                //low fixed voltage: at the stop, torque scales with voltage, so this caps how tight the chain gets
+                elevatorMotors.move_voltage(constants::elevatorHomeMv);
 
-                //after the grace time (so the start from rest doesn't look like a stall), stalled = both motors nearly stopped
+                //after the grace time (so the start from rest doesn't look like a stall), "on the stop" = the chain has
+                //taken up its slack and current has climbed past the threshold. current is used instead of velocity
+                //because the chain keeps creeping as it tightens, so velocity may never drop to ~0
                 if(elapsed > constants::elevatorHomeGraceMs){
-                    std::vector<double> velocities {elevatorMotors.get_actual_velocity_all()};
+                    std::vector<int32_t> currents {elevatorMotors.get_current_draw_all()};
+                    int32_t highest {0};
+                    for(int32_t c : currents){
+                        highest = std::max(highest, c);
+                    }
                     double fastest {0};
-                    for(double v : velocities){
+                    for(double v : elevatorMotors.get_actual_velocity_all()){
                         fastest = std::max(fastest, std::abs(v));
                     }
+                    //TODO remove once elevatorHomeStallCurrentMa is tuned
+                    std::printf("home %lums current %ld mA velocity %.1f rpm\n", static_cast<unsigned long>(elapsed), static_cast<long>(highest), fastest);
 
-                    if(fastest > constants::elevatorHomeStallRpm){
+                    //on the stop = current at its plateau AND the motors have actually stopped (the chain slows to a
+                    //crawl first, so current alone would zero while it is still taking up slack)
+                    if(highest < constants::elevatorHomeStallCurrentMa || fastest > constants::elevatorHomeStallRpm){
                         manualHomeStallSince = 0;
                     }
                     else{

@@ -41,7 +41,7 @@ namespace constants{
 
     //score end height: how far above the stowed position the elevator stops after a score.
     //TODO measure elevatorInchesPerRotation (claw height gained per motor rotation); 6.0 is a placeholder
-    constexpr double elevatorScoreEndInches {4};
+    constexpr double elevatorScoreEndInches {6};
     constexpr double elevatorInchesPerRotation {6.0};
     //how far the elevator lifts when the claw detects a piece
     constexpr double elevatorPieceLiftInches {7.0};
@@ -52,13 +52,18 @@ namespace constants{
     constexpr double elevatorZeroTolerance {0.5};
     constexpr int elevatorReturnTimeoutMs {4000};
     constexpr int elevatorHoldToHomeMs {300};
-    //hold-B home stops and zeroes on its own when the elevator stalls on the bottom stop: it must be slower than
-    //elevatorHomeStallRpm for elevatorHomeStallConfirmMs, checked only after elevatorHomeGraceMs of pushing.
-    //if it never stalls it gives up after elevatorManualHomeTimeoutMs without zeroing. TODO tune
+    //the startup home and hold-B home stop and zero on their own, checked only after elevatorHomeGraceMs of pushing.
+    //if it never reaches the zero tension it gives up after elevatorManualHomeTimeoutMs without zeroing. TODO tune
     constexpr uint32_t elevatorHomeGraceMs {300};
-    constexpr double elevatorHomeStallRpm {5.0};
+    //the chain keeps tightening, so there is no hard stop: the home zeroes at a fixed tension instead.
+    //push down at elevatorHomeMv (millivolts, low = gentle on the chain) until the highest motor current stays above
+    //elevatorHomeStallCurrentMa for the confirm time. TODO tune the current from the "home ... mA" lines printed to the terminal
+    constexpr int elevatorHomeMv {-3500};
+    //measured at 3.5 V: free spin ~73 rpm at <60 mA, current plateaus ~1430 mA with velocity 0.0 on the stop
+    constexpr int32_t elevatorHomeStallCurrentMa {1300};
+    constexpr double elevatorHomeStallRpm {2.0};
     constexpr uint32_t elevatorHomeStallConfirmMs {150};
-    constexpr uint32_t elevatorManualHomeTimeoutMs {3000};
+    constexpr uint32_t elevatorManualHomeTimeoutMs {8000};
 
     //elevator positioning
     //power while holding L1/L2 in manual, -127 to 127 for move()
