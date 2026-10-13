@@ -85,6 +85,7 @@ namespace drivetrain{
     //slew state for lemlibArcade: the forward/back voltage (mV) after slewing, and when we last ran
     static double throttleVoltage {0};
     static std::uint32_t lastDriveTime {0};
+    static double targetHeading {0};
 
     //move current toward target, but only by rate * dt. rise rate when the voltage is growing or flipping
     //direction, fall rate when it is shrinking toward 0 (same logic as the elevator's applyVoltage)
@@ -133,6 +134,19 @@ namespace drivetrain{
                                       blend(constants::driveVoltageFallLowMvPerSec, constants::driveVoltageFallHighMvPerSec), dtSec);
         double turnVoltage {turn * 12000.0 / 127.0};
 
+        //heading hold: positive rotation is clockwise, same as positive turn, so error maps straight onto turn
+        double heading {imu.get_rotation()};
+        bool driverTurning {std::abs(rightX) > constants::headingHoldStickDeadband};
+        bool driverDriving {std::abs(leftY) > constants::headingHoldStickDeadband};
+        bool spinning {std::abs(imu.get_gyro_rate().z) > constants::headingHoldMaxRateDps};
+        if(!std::isfinite(heading) || driverTurning || !driverDriving || spinning){
+            targetHeading = heading; //not holding: keep re-capturing (also covers an IMU read error)
+        }
+        else{
+            turnVoltage += std::clamp(constants::headingHoldKp * (targetHeading - heading),
+                                      -constants::headingHoldMaxMv, constants::headingHoldMaxMv);
+        }
+
         //arcade mix into left/right, scaling both down together if one side goes past 12 V (keeps the turn ratio)
         double leftVoltage {throttleVoltage + turnVoltage};
         double rightVoltage {throttleVoltage - turnVoltage};
@@ -149,7 +163,14 @@ namespace drivetrain{
 
     void drive(){
         lemlibArcade();
+
+        //print IMU to the PROS terminal about 4 times a second
+        static std::uint32_t lastImuPrint {0};
+        if(pros::millis() - lastImuPrint >= 250){
+            lastImuPrint = pros::millis();
+            printf("IMU heading %.1f  pitch %.1f  roll %.1f\n", imu.get_heading(), imu.get_pitch(), imu.get_roll());
         }
+    }
 
     void init(){
         leftMotorGroup.set_brake_mode_all(pros::E_MOTOR_BRAKE_COAST);

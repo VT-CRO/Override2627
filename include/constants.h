@@ -35,6 +35,15 @@ namespace constants{
     constexpr double driveVoltageRiseHighMvPerSec {12500.0};  //elevator up: 0 to 12 V in 0.96 s
     constexpr double driveVoltageFallHighMvPerSec {12500.0};
 
+    //heading hold: while driving straight (no turn stick), the IMU keeps the robot pointed the same way.
+    //kP = millivolts of turn per degree of error, capped at max so a bump can't make it spin. TODO tune
+    constexpr double headingHoldKp {100};
+    constexpr double headingHoldMaxMv {3000.0};
+    //stick must be inside this (stick units, 0-127) to count as "not turning", and the throttle outside it as "driving"
+    constexpr double headingHoldStickDeadband {5.0};
+    //while spinning faster than this (deg/s) just follow the robot, so letting go of a turn doesn't snap it back
+    constexpr double headingHoldMaxRateDps {30.0};
+
     //--------  elevator constants  -------- 
     //fraction of maxMotorRotations for each major height: bottom, Y, X, A, top
     constexpr std::array<double, 5> elevatorMajorIncrements {0.0, 0.25, 0.5, 0.75, 1.0};
@@ -89,7 +98,7 @@ namespace constants{
 
     //misc
     constexpr int radio {8};
-    constexpr int imu {0};
+    constexpr int imu {16};
 
     //motor gear ratios 
     constexpr pros::v5::MotorGears drivetrainGearRatio {pros::v5::MotorGears::green};
