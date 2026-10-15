@@ -96,35 +96,25 @@ namespace drivetrain{
     }
 
     void lemlibArcade(){
-        double multiplier {1};
         double maxElevatorRotations {constants::elevatorMaxMotorRotations};
         double currentElevatorRotations {elevator::getElevatorRotations()};
-        double scalingConstant {1};
-
-        if(currentElevatorRotations > maxElevatorRotations/2){
-            scalingConstant = 3.5;
-        }
-        else{
-            scalingConstant = .01;
-        }
-        
-
-        multiplier = ((constants::elevatorMaxMotorRotations + scalingConstant) -  currentElevatorRotations) / (maxElevatorRotations);
 
         double leftY {constants::master.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y)};
         double rightX {constants::master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X)};
 
-        //curve AFTER the multiplier, same order LemLib's arcade used before, so top speeds feel the same as before
-        double throttle {throttleCurve.curve(leftY * multiplier)};
-        double turn {steerCurve.curve(rightX * multiplier)};
+        //anti tip: the higher the elevator, the gentler the limits (0 = down, 1 = top)
+        double height {std::clamp(currentElevatorRotations / maxElevatorRotations, 0.0, 1.0)};
+
+        //top speed fades linearly from full (down) to elevatorTopSpeedScale (top), applied after the curve so it is exact
+        double speedScale {1.0 - (1.0 - constants::elevatorTopSpeedScale) * height};
+        double throttle {throttleCurve.curve(leftY) * speedScale};
+        double turn {steerCurve.curve(rightX) * speedScale};
 
         //time since the last loop. first call or a long gap: assume one 20 ms loop
         std::uint32_t now {pros::millis()};
         double dtSec {(lastDriveTime == 0 || now - lastDriveTime > 100) ? 0.02 : (now - lastDriveTime) / 1000.0};
         lastDriveTime = now;
 
-        //anti tip: the higher the elevator, the gentler the limits (0 = down, 1 = top)
-        double height {std::clamp(currentElevatorRotations / maxElevatorRotations, 0.0, 1.0)};
         auto blend {[height](double low, double high){ return low + (high - low) * height; }};
 
         //stick units (-127 to 127) to millivolts (-12000 to 12000). only translation is slewed, turning goes straight through

@@ -31,8 +31,10 @@ namespace constants{
     //translation (~17% gentler than the first tune)
     constexpr double driveVoltageRiseLowMvPerSec {25000.0};   //elevator down: 0 to 12 V in 0.48 s
     constexpr double driveVoltageFallLowMvPerSec {25000.0};
-    constexpr double driveVoltageRiseHighMvPerSec {12500.0};  //elevator up: 0 to 12 V in 0.96 s
-    constexpr double driveVoltageFallHighMvPerSec {12500.0};
+    constexpr double driveVoltageRiseHighMvPerSec {7500.0};   //elevator up: 0 to 12 V in 1.6 s
+    constexpr double driveVoltageFallHighMvPerSec {7500.0};
+    //top speed (fraction of full) with the elevator at the top, fading linearly from 1.0 with the elevator down. TODO tune
+    constexpr double elevatorTopSpeedScale {0.75};
 
     //--------  elevator constants  -------- 
     //fraction of maxMotorRotations for each major height: bottom, Y, X, A, top
