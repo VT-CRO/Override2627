@@ -46,7 +46,9 @@ void competition_initialize() {}
  * will be stopped. Re-enabling the robot will restart the task, not re-start it
  * from where it left off.
  */
-void autonomous() {}
+void autonomous() {
+	elevator::homeBlocking();
+}
 
 /**
  * Runs the operator control code. This function will be started in its own task
@@ -62,10 +64,15 @@ void autonomous() {}
  * task, not resume it from where it left off.
  */
 void opcontrol() {
+	//no-op if autonomous already homed
+	elevator::homeBlocking();
 
 	while(true){
 		//drivetrain commands
 		drivetrain::drive();
+
+		//hold LEFT + RIGHT for 1.5 s to run the elevator auto-tune (on blocks!)
+		elevator::autoTune();
 
 		//elevator control
 		elevator::handleInput();
