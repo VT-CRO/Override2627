@@ -84,6 +84,7 @@ namespace drivetrain{
 
     //slew state for lemlibArcade: the forward/back voltage (mV) after slewing, and when we last ran
     static double throttleVoltage {0};
+    static double turnVoltage {0};
     static std::uint32_t lastDriveTime {0};
 
     //move current toward target, but only by rate * dt. rise rate when the voltage is growing or flipping
@@ -108,7 +109,7 @@ namespace drivetrain{
         //top speed fades linearly from full (down) to elevatorTopSpeedScale (top), applied after the curve so it is exact
         double speedScale {1.0 - (1.0 - constants::elevatorTopSpeedScale) * height};
         double throttle {throttleCurve.curve(leftY) * speedScale};
-        double turn {steerCurve.curve(rightX) * speedScale};
+        double turn {steerCurve.curve(rightX) * speedScale * constants::driveTurnScale};
 
         //time since the last loop. first call or a long gap: assume one 20 ms loop
         std::uint32_t now {pros::millis()};
@@ -117,11 +118,12 @@ namespace drivetrain{
 
         auto blend {[height](double low, double high){ return low + (high - low) * height; }};
 
-        //stick units (-127 to 127) to millivolts (-12000 to 12000). only translation is slewed, turning goes straight through
+        //stick units (-127 to 127) to millivolts (-12000 to 12000). both translation and turning are slewed
         throttleVoltage = slewVoltage(throttle * 12000.0 / 127.0, throttleVoltage,
                                       blend(constants::driveVoltageRiseLowMvPerSec, constants::driveVoltageRiseHighMvPerSec),
                                       blend(constants::driveVoltageFallLowMvPerSec, constants::driveVoltageFallHighMvPerSec), dtSec);
-        double turnVoltage {turn * 12000.0 / 127.0};
+        turnVoltage = slewVoltage(turn * 12000.0 / 127.0, turnVoltage,
+                                  constants::driveTurnRiseMvPerSec, constants::driveTurnFallMvPerSec, dtSec);
 
         //arcade mix into left/right, scaling both down together if one side goes past 12 V (keeps the turn ratio)
         double leftVoltage {throttleVoltage + turnVoltage};
@@ -142,8 +144,8 @@ namespace drivetrain{
         }
 
     void init(){
-        leftMotorGroup.set_brake_mode_all(pros::E_MOTOR_BRAKE_COAST);
-        rightMotorGroup.set_brake_mode_all(pros::E_MOTOR_BRAKE_COAST);
+        leftMotorGroup.set_brake_mode_all(pros::E_MOTOR_BRAKE_BRAKE);
+        rightMotorGroup.set_brake_mode_all(pros::E_MOTOR_BRAKE_BRAKE);
         chassis.calibrate();
     }
 }
