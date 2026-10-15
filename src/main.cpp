@@ -64,8 +64,8 @@ void autonomous() {
  * task, not resume it from where it left off.
  */
 void opcontrol() {
-	//no-op if autonomous already homed
-	elevator::homeBlocking();
+	//no-op if autonomous already homed. not blocking: the loop below runs the home and the drivetrain still drives
+	elevator::requestHome();
 
 	while(true){
 		//drivetrain commands

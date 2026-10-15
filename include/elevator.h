@@ -3,7 +3,11 @@
 namespace elevator{
     void init();
 
+    void requestHome();
+
     void homeBlocking();
+
+    bool isHoming();
 
     void update();
 

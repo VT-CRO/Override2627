@@ -15,8 +15,8 @@ namespace elevator{
 
     double currentElevatorMotorRotations {0};
 
-    //Homing: timed home, only used on startup
-    //Returning: driving to encoder zero with position control (B tap)
+    //Homing: startup home, same stall-detected home as ManualHoming but does not need B held
+    //Returning: driving down to the stow height with position control (B tap)
     //ManualHoming: driving down while the driver holds B, zeroes itself once it stalls on the bottom stop
     //Manual: driving up/down for as long as the driver holds L1 (up) or L2 (down)
     //ManualHold: L1/L2 released, holding wherever manual stopped
@@ -27,11 +27,10 @@ namespace elevator{
     //target (rotations) for Mode::Lift
     static double liftTarget {0};
 
-    static uint32_t homingStartTime {0};
     static int returnStartTime {0};
     //when B was pressed, 0 when B is not held. used to tell a tap from a hold
     static int bPressStartTime {0};
-    //manual home (hold B) stall detection: when it started, and when the elevator first looked stalled (0 = moving)
+    //home (startup or hold B) stall detection: when it started, and when the elevator first looked stalled (0 = moving)
     static uint32_t manualHomeStartTime {0};
     static uint32_t manualHomeStallSince {0};
     //power used by Manual, set by handleInput (positive = up)
@@ -144,10 +143,10 @@ namespace elevator{
         applyVoltage(output);
     }
 
-    //true if manual is pushing past the top or below zero (B hold is for going below zero)
+    //true if manual is pushing past the top or below the stow height (B hold is for going lower)
     static bool manualPastLimit(double voltage){
         bool atTop {currentElevatorMotorRotations >= constants::elevatorMaxMotorRotations && voltage > 0};
-        bool atBottom {currentElevatorMotorRotations <= 0 && voltage < 0};
+        bool atBottom {currentElevatorMotorRotations <= constants::elevatorStowRotations && voltage < 0};
         return atTop || atBottom;
     }
 
@@ -158,12 +157,23 @@ namespace elevator{
         currentMode = Mode::ManualHold;
     }
 
+    //on the bottom: this is zero. clearing bPressStartTime keeps a still-held B from starting another home,
+    //it takes a fresh press
+    static void zeroHere(){
+        elevatorMotors.move(0);
+        elevatorMotors.tare_position_all();
+        homed = true;
+        level = 0;
+        bPressStartTime = 0;
+        currentMode = Mode::Stowed;
+    }
+
     //request a home. the timer starts on the first update() after this, not here,
     //because init() runs long before opcontrol when plugged into field control
     void startHoming(){
         currentMode = Mode::Homing;
         level = 0;
-        homingStartTime = 0;
+        manualHomeStartTime = 0;
     }
 
     void init(){
@@ -173,16 +183,18 @@ namespace elevator{
     }
 
     //motors only run once the robot is enabled, so this is called at the start of autonomous/opcontrol, not from init().
-    //blocks until the startup home finishes. restarts the timer in case a disable cut an earlier attempt short
-    void homeBlocking(){
-        if(homed){
-            return;
+    //restarts the home in case a disable cut an earlier attempt short. does nothing if already homed.
+    //update() runs the home, so in opcontrol the drivetrain keeps working while it homes
+    void requestHome(){
+        if(!homed){
+            startHoming();
         }
-        //same stall-detected home as hold-B, so it runs until it hits the bottom stop (timed out: not homed)
-        currentMode = Mode::ManualHoming;
-        level = 0;
-        manualHomeStartTime = 0;
-        while(currentMode == Mode::ManualHoming){
+    }
+
+    //autonomous: wait here until the home finishes (timed out: not homed)
+    void homeBlocking(){
+        requestHome();
+        while(currentMode == Mode::Homing){
             update();
             pros::delay(20);
         }
@@ -204,31 +216,6 @@ namespace elevator{
 
         switch(currentMode){
             //braces are needed around a case that declares variables
-            case Mode::Homing: {
-                //start the clock on the first update after homing was requested
-                if(homingStartTime == 0){
-                    homingStartTime = pros::millis();
-                }
-
-                uint32_t elapsed {pros::millis() - homingStartTime};
-
-                appliedVoltage = 0;
-
-                if(elapsed < constants::elevatorHomingTimeMs){
-                    //still driving down. move_voltage takes millivolts, so convert from volts
-                    elevatorMotors.move(constants::elevatorHomingVolts);
-                }
-                else{
-                    //driven down long enough to be sitting on the bottom, zero here
-                    elevatorMotors.move(0);
-                    elevatorMotors.tare_position_all();
-                    homed = true;
-                    level = 0;
-                    currentMode = Mode::Stowed;
-                }
-                break;
-            }
-
             case Mode::Stowed:
                 //sitting at the bottom, don't push into the hard stop
                 appliedVoltage = 0;
@@ -255,24 +242,26 @@ namespace elevator{
                     returnStartTime = pros::millis();
                 }
 
-                //come down with the same voltage control as level moves
-                driveToTarget(0);
+                //come down with the same voltage control as level moves, stopping at the stow height above zero
+                driveToTarget(constants::elevatorStowRotations);
 
-                //holdSettled means driveToTarget got within elevatorSettleTolerance of zero
-                bool atZero {holdSettled};
-                //safety: if zero can't be reached (encoder drifted below the real bottom), stop trying
+                //holdSettled means driveToTarget got within elevatorSettleTolerance of the stow height
+                bool atStow {holdSettled};
+                //safety: if the stow height can't be reached (encoder drifted), stop trying
                 //and unlock. the driver can hold B to re-home at the real bottom
                 bool timedOut {pros::millis() - returnStartTime > constants::elevatorReturnTimeoutMs};
 
-                if(atZero || timedOut){
+                if(atStow || timedOut){
                     currentMode = Mode::Stowed;
                 }
                 break;
             }
 
+            case Mode::Homing:
             case Mode::ManualHoming: {
-                //push down while B is held until the elevator stalls on the bottom stop, then zero and stop pushing.
-                //handleInput cancels without zeroing if B is released first
+                //push down until the elevator stalls on the bottom stop, then zero and stop pushing.
+                //startup home (Homing) and hold B (ManualHoming) share this. handleInput cancels a hold-B home
+                //without zeroing if B is released first
                 if(manualHomeStartTime == 0){
                     manualHomeStartTime = pros::millis();
                     manualHomeStallSince = 0;
@@ -309,17 +298,16 @@ namespace elevator{
                             manualHomeStallSince = pros::millis();
                         }
                         if(pros::millis() - manualHomeStallSince > constants::elevatorHomeStallConfirmMs){
-                            //on the bottom stop: this is the real zero. clearing bPressStartTime keeps a still-held B
-                            //from starting another home, it takes a fresh press
-                            elevatorMotors.move(0);
-                            elevatorMotors.tare_position_all();
-                            homed = true;
-                            level = 0;
-                            bPressStartTime = 0;
-                            currentMode = Mode::Stowed;
+                            zeroHere();
                             break;
                         }
                     }
+                }
+
+                //startup home that never saw the stall: the elevator starts down, so zero here instead of staying locked
+                if(currentMode == Mode::Homing && elapsed > constants::elevatorStartupHomeTimeoutMs){
+                    zeroHere();
+                    break;
                 }
 
                 //never stalled (stuck above the stop, or the encoders/motors are failing): stop pushing, don't zero
@@ -530,5 +518,10 @@ namespace elevator{
 
     double getElevatorRotations(){
         return currentElevatorMotorRotations;
+    }
+
+    //true during the startup home, the end effector and score use this to ignore inputs until it finishes
+    bool isHoming(){
+        return currentMode == Mode::Homing;
     }
 }

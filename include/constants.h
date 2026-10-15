@@ -43,16 +43,17 @@ namespace constants{
     //TODO measure elevatorInchesPerRotation (claw height gained per motor rotation); 6.0 is a placeholder
     constexpr double elevatorScoreEndInches {6};
     constexpr double elevatorInchesPerRotation {6.0};
-    //how far the elevator lifts when the claw detects a piece
-    constexpr double elevatorPieceLiftInches {7.0};
+    //how far the elevator lifts when the claw detects a piece. small so it doesn't catch on the human load station
+    constexpr double elevatorPieceLiftInches {2.0};
+    //stow (B tap, Down to level 0) stops this far above zero, and L2 manual stops here too. the home winds the chain
+    //below where the elevator really bottoms out, so zero itself can't be reached without pushing into the stop. TODO tune
+    constexpr double elevatorStowRotations {0.2};
 
-    //voltage to drive down with for both the startup home and the hold-B home, in volts (-12 to 12)
-    constexpr double elevatorHomingVolts {-127.0/2};
-    constexpr int elevatorHomingTimeMs {250};
     constexpr double elevatorZeroTolerance {0.5};
     constexpr int elevatorReturnTimeoutMs {4000};
     constexpr int elevatorHoldToHomeMs {300};
     //the startup home and hold-B home stop and zero on their own, checked only after elevatorHomeGraceMs of pushing.
+    //the startup home does not block the drivetrain: only the elevator and end effector inputs wait for it.
     //if it never reaches the zero tension it gives up after elevatorManualHomeTimeoutMs without zeroing. TODO tune
     constexpr uint32_t elevatorHomeGraceMs {300};
     //the chain keeps tightening, so there is no hard stop: the home zeroes at a fixed tension instead.
@@ -64,6 +65,9 @@ namespace constants{
     constexpr double elevatorHomeStallRpm {2.0};
     constexpr uint32_t elevatorHomeStallConfirmMs {150};
     constexpr uint32_t elevatorManualHomeTimeoutMs {8000};
+    //startup home only: the robot always starts with the elevator down, so if the stall check hasn't tripped by now,
+    //zero where it is anyway. without this a failed startup home leaves the elevator locked for the whole match
+    constexpr uint32_t elevatorStartupHomeTimeoutMs {2000};
 
     //elevator positioning
     //power while holding L1/L2 in manual, -127 to 127 for move()
@@ -96,16 +100,20 @@ namespace constants{
     //voltages in millivolts (12000 = full). the claw and wheels share one motor, so power decides what moves:
     //about 25/127 (~2900 mV) moves only the claw, more than that also spins the wheels. TODO tune
     constexpr double endEffectorIntakeMv {12000.0};
-    //release: opens the claw only (low power so the wheels stay still) for a short time, so it doesn't open all the way
-    constexpr double endEffectorReleaseMv {2900.0};
-    constexpr std::uint32_t endEffectorReleaseMs {600};
+    //open: opens the claw only (low power so the wheels stay still) until the motor has turned endEffectorOpenRotations
+    //from where it closed, so it opens to the same spot every time. the timeout stops it if it hits the outer stop first. TODO tune
+    constexpr double endEffectorOpenMv {2900.0};
+    constexpr double endEffectorOpenRotations {0.3};
+    constexpr std::uint32_t endEffectorOpenTimeoutMs {1000};
     //hold power once a piece is in: keep it small so a stalled motor doesn't overheat. TODO tune
     constexpr double endEffectorHoldMv {2500};
-    //piece detection while intaking: motor current (mA) above this for the confirm time means it stalled on a piece.
+    //piece detection while intaking: current (mA) above the limit AND speed (rpm) below the limit for the confirm time
+    //means the wheels stalled on a piece. checking speed too stops a high current spike in free air from counting.
     //the grace time skips the current spike while the motor spins up. confirm is short so the elevator lift
     //starts almost right away. TODO tune, read get_current_draw() during an intake
     //from logged intakes: spinning in air peaks ~2375 mA in the first 200 ms, then stays under ~2115 mA. a piece sits at ~2250-2550 mA
     constexpr int endEffectorStallCurrentMa {2200};
+    constexpr double endEffectorStallRpm {20.0}; //TODO tune, read get_actual_velocity() during an intake
     constexpr std::uint32_t endEffectorIntakeGraceMs {250};
     constexpr std::uint32_t endEffectorStallConfirmMs {40};
     //very light slew: 0 to full in ~0.1 s, just enough to soften hard reversals. raise to be gentler
