@@ -71,6 +71,9 @@ void opcontrol() {
 		//drivetrain commands
 		drivetrain::drive();
 
+		//hold LEFT + RIGHT for 1.5 s to run the elevator auto-tune (on blocks!)
+		elevator::autoTune();
+
 		//elevator control
 		elevator::handleInput();
 		elevator::update();

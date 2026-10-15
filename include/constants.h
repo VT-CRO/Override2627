@@ -39,12 +39,23 @@ namespace constants{
     constexpr std::array<double, 5> elevatorMajorIncrements {0.0, 0.25, 0.5, 0.75, 1.0};
     constexpr int elevatorStepsPerSection {3}; 
 
-    //score end height: how far above the stowed position the elevator stops after a score.
-    //TODO measure elevatorInchesPerRotation (claw height gained per motor rotation); 6.0 is a placeholder
-    constexpr double elevatorScoreEndInches {6};
-    constexpr double elevatorInchesPerRotation {6.0};
-    //how far the elevator lifts when the claw detects a piece
-    constexpr double elevatorPieceLiftInches {7.0};
+    //score end position: motor rotations above the stowed position where the elevator stops after a score.
+    //these are plain motor rotations, not measured heights (the DR4B's height per rotation is not constant)
+    constexpr double elevatorScoreEndRotations {1.3};
+    //how many rotations the elevator lifts when the claw detects a piece
+    constexpr double elevatorPieceLiftRotations {1.17};
+    //gravity feedforward in millivolts: the voltage that just holds the lift still, at the bottom and at the top, blended
+    //by position in between. measure it on the robot (hold it at each end and raise until it stops sagging). 0 = off,
+    //the integral term then has to carry the load. a DR4B is normally heaviest to hold low, so expect Low > High. TODO tune
+    constexpr double elevatorGravityLowMv {1575.0};
+    constexpr double elevatorGravityHighMv {1500.0};
+    //the motor positions those two voltages were measured at, and where the load starts at the bottom: the lowest
+    //rotations are slack (unwinding the home tension), where turning the motor lifts nothing, so there is no gravity
+    //load to hold. below elevatorLoadedStartRotations the feedforward is 0, ramping up to the Low value by LowAt.
+    //the auto-tune (hold LEFT + RIGHT) measures all three. defaults match its test heights
+    constexpr double elevatorGravityLowAtRotations {1.92};
+    constexpr double elevatorGravityHighAtRotations {3.84};
+    constexpr double elevatorLoadedStartRotations {0.88};
 
     //voltage to drive down with for both the startup home and the hold-B home, in volts (-12 to 12)
     constexpr double elevatorHomingVolts {-127.0/2};
@@ -60,8 +71,8 @@ namespace constants{
     //elevatorHomeStallCurrentMa for the confirm time. TODO tune the current from the "home ... mA" lines printed to the terminal
     constexpr int elevatorHomeMv {-3500};
     //measured at 3.5 V: free spin ~73 rpm at <60 mA, current plateaus ~1430 mA with velocity 0.0 on the stop
-    constexpr int32_t elevatorHomeStallCurrentMa {1300};
-    constexpr double elevatorHomeStallRpm {2.0};
+    constexpr int32_t elevatorHomeStallCurrentMa {1152};
+    constexpr double elevatorHomeStallRpm {34.3};
     constexpr uint32_t elevatorHomeStallConfirmMs {150};
     constexpr uint32_t elevatorManualHomeTimeoutMs {8000};
 
@@ -79,18 +90,29 @@ namespace constants{
     constexpr double elevatorMaxVoltageMv {12000.0};
     //P gain: millivolts per rotation of error. 12000 = full power when 1+ rotation away, fades out as it gets close.
     //this sets how fast short moves are: one Up/Down step is only ~0.53 rotations, so a low gain means a low voltage
-    constexpr double elevatorKp {12000.0};
+    constexpr double elevatorKp {14682.0};
     //smallest voltage that still moves the elevator (beats friction) so it doesn't stall just short of the target
-    constexpr double elevatorMinVoltageMv {800.0};
+    constexpr double elevatorMinVoltageMv {1710.0};
     //voltage slew limits, in millivolts per second. rise = speeding up (48000 = 0 to 12 V in 0.25 s),
     //fall = slowing down (72000 = 12 V to 0 in ~0.17 s). fall must stay fast enough to keep up with the P gain
     //dropping the voltage near the target, or the elevator overshoots. lower = smoother but slower to respond
     constexpr double elevatorVoltageRiseMvPerSec {48000.0};
     constexpr double elevatorVoltageFallMvPerSec {72000.0};
-    //within this many rotations of the target: stop driving and brake (hold)
-    constexpr double elevatorSettleTolerance {0.05};
+    //integral: only builds inside elevatorIntegralZone (rotations) so it can't wind up during big moves, and its voltage
+    //is capped at elevatorIntegralMaxMv. it replaces the min voltage inside the zone: it grows until friction/gravity
+    //are beaten, so the elevator lands on the target instead of stopping short. TODO tune
+    constexpr double elevatorKi {237975.0};  //mV per (rotation * second)
+    constexpr double elevatorIntegralZone {0.3};
+    constexpr double elevatorIntegralMaxMv {3244.0};
+    //derivative on measurement: mV per (rotation / second) of speed, brakes the approach so it doesn't overshoot. TODO tune
+    constexpr double elevatorKd {587.0};
+    //settled = within the tolerance AND slower than elevatorSettleSpeed (rot/s) for elevatorSettleDwellMs, then brake and hold.
+    //requiring it to be slow is what makes the stop height repeatable instead of wherever it first touched the window
+    constexpr double elevatorSettleTolerance {0.02};
+    constexpr double elevatorSettleSpeed {0.05};
+    constexpr uint32_t elevatorSettleDwellMs {100};
     //after settling, only start correcting again if it drifts this far. the gap between the two stops chatter
-    constexpr double elevatorResettleTolerance {0.15};
+    constexpr double elevatorResettleTolerance {0.05};
 
     //--------  endEffector constants  -------- 
     //voltages in millivolts (12000 = full). the claw and wheels share one motor, so power decides what moves:
@@ -108,6 +130,9 @@ namespace constants{
     constexpr int endEffectorStallCurrentMa {2200};
     constexpr std::uint32_t endEffectorIntakeGraceMs {250};
     constexpr std::uint32_t endEffectorStallConfirmMs {40};
+    //after a piece is detected the wheels keep pulling it in at this power for this long before dropping to hold. TODO tune
+    constexpr double endEffectorSeatMv {7000.0};
+    constexpr std::uint32_t endEffectorSeatMs {250};
     //very light slew: 0 to full in ~0.1 s, just enough to soften hard reversals. raise to be gentler
     constexpr double endEffectorVoltageSlewMvPerSec {120000.0};
 

@@ -9,11 +9,13 @@ namespace endeffector{
     pros::Motor endEffector(constants::endEffectorMotor, constants::endEffectorGears);
 
     //one motor does both the claw and the wheels: Intake closes the claw and spins the wheels in,
-    //Hold keeps a little power on once a piece is in, Release opens the claw (low power, wheels stay still)
-    enum class Mode{Idle, Intake, Hold, Release};
+    //Seat keeps pulling the detected piece in for a moment, Hold keeps a little power on once it's in,
+    //Release opens the claw (low power, wheels stay still)
+    enum class Mode{Idle, Intake, Seat, Hold, Release};
 
     static Mode currentMode {Mode::Idle};
     static uint32_t releaseStartTime {0};
+    static uint32_t seatStartTime {0};
     static uint32_t intakeStartTime {0};
     //when the current first went over the limit, 0 while it is under
     static uint32_t highCurrentSince {0};
@@ -36,19 +38,27 @@ namespace endeffector{
             case(Mode::Intake):
             targetMv = constants::endEffectorIntakeMv;
             //a piece stalls the motor, so the current stays high. ignore the spin up spike at the start,
-            //then require it to stay high for a moment before switching to the low hold power and lifting the elevator
+            //then require it to stay high for a moment before lifting the elevator and seating the piece
             if(pros::millis() - intakeStartTime > constants::endEffectorIntakeGraceMs
                && endEffector.get_current_draw() > constants::endEffectorStallCurrentMa){
                 if(highCurrentSince == 0){
                     highCurrentSince = pros::millis();
                 }
                 if(pros::millis() - highCurrentSince > constants::endEffectorStallConfirmMs){
-                    currentMode = Mode::Hold;
-                    elevator::requestLift(constants::elevatorPieceLiftInches);
+                    currentMode = Mode::Seat;
+                    seatStartTime = pros::millis();
+                    elevator::requestLift(constants::elevatorPieceLiftRotations);
                 }
             }
             else{
                 highCurrentSince = 0;
+            }
+            break;
+
+            case(Mode::Seat):
+            targetMv = constants::endEffectorSeatMv;
+            if(pros::millis() - seatStartTime >= constants::endEffectorSeatMs){
+                currentMode = Mode::Hold;
             }
             break;
 

@@ -5,6 +5,12 @@ namespace elevator{
 
     void homeBlocking();
 
+    //measures the elevator's tuning values and prints them (see elevator_tune.cpp). call every loop, it only runs on LEFT + RIGHT held
+    void autoTune();
+
+    //marks the zero as unknown so the next homeBlocking() re-homes
+    void forgetHome();
+
     void update();
 
     void handleInput();
@@ -15,7 +21,7 @@ namespace elevator{
 
     void requestScoreEnd();
 
-    void requestLift(double inches);
+    void requestLift(double rotations);
 
     bool isElevatorStowed();
 
