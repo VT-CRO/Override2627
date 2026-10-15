@@ -1,0 +1,3 @@
+# Every pull request into main needs an approving review from a programming lead.
+# GitHub automatically requests review from these people when a PR is opened.
+* @chrisayad @AuthGithub
