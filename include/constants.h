@@ -31,8 +31,14 @@ namespace constants{
     //translation (~17% gentler than the first tune)
     constexpr double driveVoltageRiseLowMvPerSec {25000.0};   //elevator down: 0 to 12 V in 0.48 s
     constexpr double driveVoltageFallLowMvPerSec {25000.0};
-    constexpr double driveVoltageRiseHighMvPerSec {12500.0};  //elevator up: 0 to 12 V in 0.96 s
-    constexpr double driveVoltageFallHighMvPerSec {12500.0};
+    constexpr double driveVoltageRiseHighMvPerSec {7500.0};   //elevator up: 0 to 12 V in 1.6 s
+    constexpr double driveVoltageFallHighMvPerSec {7500.0};
+    //turning: stick scale and slew (fall faster than rise so it stops quickly). TODO tune with a driver
+    constexpr double driveTurnScale {0.7};
+    constexpr double driveTurnRiseMvPerSec {40000.0};
+    constexpr double driveTurnFallMvPerSec {60000.0};
+    //top speed (fraction of full) with the elevator at the top, fading linearly from 1.0 with the elevator down. TODO tune
+    constexpr double elevatorTopSpeedScale {0.75};
 
     //--------  elevator constants  -------- 
     //fraction of maxMotorRotations for each major height: bottom, Y, X, A, top
@@ -132,7 +138,7 @@ namespace constants{
     constexpr std::uint32_t endEffectorStallConfirmMs {40};
     //after a piece is detected the wheels keep pulling it in at this power for this long before dropping to hold. TODO tune
     constexpr double endEffectorSeatMv {7000.0};
-    constexpr std::uint32_t endEffectorSeatMs {250};
+    constexpr std::uint32_t endEffectorSeatMs {400};
     //very light slew: 0 to full in ~0.1 s, just enough to soften hard reversals. raise to be gentler
     constexpr double endEffectorVoltageSlewMvPerSec {120000.0};
 
