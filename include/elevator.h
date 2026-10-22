@@ -19,7 +19,7 @@ namespace elevator{
 
     void requestStow();
 
-    void requestScoreEnd();
+    void requestIntake();
 
     void requestLift(double rotations);
 

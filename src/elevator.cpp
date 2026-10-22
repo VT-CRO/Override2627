@@ -11,7 +11,7 @@ namespace elevator{
 
     pros::MotorGroup elevatorMotors ({constants::rightElevator, constants::leftElevator}, constants::elevatorGearRatio);
 
-    enum class Mode { Homing, Stowed, Positioning, ScoreEnd, Lift, Returning, ManualHoming, Manual, ManualHold };
+    enum class Mode { Homing, Stowed, Positioning, Intake, Lift, Returning, ManualHoming, Manual, ManualHold };
 
     double currentElevatorMotorRotations {0};
 
@@ -255,7 +255,7 @@ namespace elevator{
         lastPositionTime = now;
 
         //only Positioning/Returning use the settled flag, anything else means the next move starts fresh
-        if(currentMode != Mode::Positioning && currentMode != Mode::ScoreEnd && currentMode != Mode::Lift && currentMode != Mode::Returning){
+        if(currentMode != Mode::Positioning && currentMode != Mode::Intake && currentMode != Mode::Lift && currentMode != Mode::Returning){
             holdSettled = false;
             integral = 0;
             settleSince = 0;
@@ -299,9 +299,9 @@ namespace elevator{
                 driveToTarget(positionForLevel(level));
                 break;
 
-            case Mode::ScoreEnd:
-                //where the elevator ends up after a score, a bit above the stowed height. brakes and holds once there
-                driveToTarget(constants::elevatorScoreEndRotations);
+            case Mode::Intake:
+                //the intake height, a bit above the stowed height. brakes and holds once there
+                driveToTarget(constants::elevatorIntakeRotations);
                 break;
 
             case Mode::Lift:
@@ -558,13 +558,13 @@ namespace elevator{
     }
 
     //safe to call every loop: does nothing if it is already on its way. level 0 so Up/Down taps step from the bottom
-    void requestScoreEnd(){
+    void requestIntake(){
         if(!homed){
             startHoming();
             return;
         }
-        if(currentMode != Mode::ScoreEnd){
-            currentMode = Mode::ScoreEnd;
+        if(currentMode != Mode::Intake){
+            currentMode = Mode::Intake;
             level = 0;
         }
     }

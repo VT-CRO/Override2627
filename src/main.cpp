@@ -11,6 +11,13 @@
  * All other competition modes are blocked by initialize; it is recommended
  * to keep execution time for this mode under a few seconds.
  */
+//homes the elevator and the claw at the same time; returns once both are done
+static void homeAll() {
+	pros::Task clawHome([] { endeffector::homeBlocking(); });
+	elevator::homeBlocking();
+	clawHome.join();
+}
+
 void initialize() {
 	drivetrain::init();
 	elevator::init();
@@ -47,7 +54,7 @@ void competition_initialize() {}
  * from where it left off.
  */
 void autonomous() {
-	elevator::homeBlocking();
+	homeAll();
 }
 
 /**
@@ -65,7 +72,7 @@ void autonomous() {
  */
 void opcontrol() {
 	//no-op if autonomous already homed
-	elevator::homeBlocking();
+	homeAll();
 
 	while(true){
 		//drivetrain commands
@@ -79,11 +86,8 @@ void opcontrol() {
 		elevator::update();
 
 		//end effector control
-		endeffector::handleInputs();
-		endeffector::update();
-
-		//commands
-		commands::score();
+		//commands::score() is off while testing: it shares R2 with the claw test
+		endeffector::test();
 
 		//20ms periodic delay
 		pros::delay(20);

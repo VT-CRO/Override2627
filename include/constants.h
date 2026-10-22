@@ -16,12 +16,14 @@ namespace constants{
     constexpr int leftMotorThree {-3};
 
     //elevator motors
-    constexpr int leftElevator {6};
+    constexpr int leftElevator {5};
     constexpr int rightElevator {-19};
     constexpr double elevatorMaxMotorRotations {6.4};
 
-    //end effector (claw + wheels, one motor)
-    constexpr int endEffectorMotor {10};
+    //end effector (two pivot motors + claw motor)
+    constexpr int endEffectorPivotAPort {8};
+    constexpr int endEffectorPivotBPort {-6}; //negate if it spins opposite pivot A
+    constexpr int endEffectorClawPort {10};
 
     //--------  drivetrain constants  -------- 
     //driver control acceleration limits, same idea as the elevator: the voltage may only change so fast.
@@ -47,9 +49,9 @@ namespace constants{
     constexpr std::array<double, 5> elevatorMajorIncrements {0.0, 0.25, 0.5, 0.75, 1.0};
     constexpr int elevatorStepsPerSection {3}; 
 
-    //score end position: motor rotations above the stowed position where the elevator stops after a score.
+    //intake position: motor rotations above the stowed position where the elevator sits to intake.
     //these are plain motor rotations, not measured heights (the DR4B's height per rotation is not constant)
-    constexpr double elevatorScoreEndRotations {1.3};
+    constexpr double elevatorIntakeRotations {1.3};
     //how many rotations the elevator lifts when the claw detects a piece
     constexpr double elevatorPieceLiftRotations {1.17};
     //gravity feedforward in millivolts: the voltage that just holds the lift still, at the bottom and at the top, blended
@@ -123,26 +125,30 @@ namespace constants{
     constexpr double elevatorResettleTolerance {0.05};
 
     //--------  endEffector constants  -------- 
-    //voltages in millivolts (12000 = full). the claw and wheels share one motor, so power decides what moves:
-    //about 25/127 (~2900 mV) moves only the claw, more than that also spins the wheels. TODO tune
-    constexpr double endEffectorIntakeMv {12000.0};
-    //release: opens the claw only (low power so the wheels stay still) for a short time, so it doesn't open all the way
-    constexpr double endEffectorReleaseMv {2900.0};
-    constexpr std::uint32_t endEffectorReleaseMs {600};
-    //hold power once a piece is in: keep it small so a stalled motor doesn't overheat. TODO tune
-    constexpr double endEffectorHoldMv {2500};
-    //piece detection while intaking: motor current (mA) above this for the confirm time means it stalled on a piece.
-    //the grace time skips the current spike while the motor spins up. confirm is short so the elevator lift
-    //starts almost right away. TODO tune, read get_current_draw() during an intake
-    //from logged intakes: spinning in air peaks ~2375 mA in the first 200 ms, then stays under ~2115 mA. a piece sits at ~2250-2550 mA
-    constexpr int endEffectorStallCurrentMa {2200};
-    constexpr std::uint32_t endEffectorIntakeGraceMs {250};
-    constexpr std::uint32_t endEffectorStallConfirmMs {40};
-    //after a piece is detected the wheels keep pulling it in at this power for this long before dropping to hold. TODO tune
-    constexpr double endEffectorSeatMv {7000.0};
-    constexpr std::uint32_t endEffectorSeatMs {300};
-    //very light slew: 0 to full in ~0.1 s, just enough to soften hard reversals. raise to be gentler
-    constexpr double endEffectorVoltageSlewMvPerSec {120000.0};
+    //bench test only: right stick Y (+-127) times this gives pivot mV (47 * 127 = ~6000 mV), claw mV
+    constexpr int endEffectorTestPivotMvPerStick {47};
+    //claw homing: close at this low voltage until the speed drops under the stall rpm (after the grace time), zero there. TODO tune
+    //3000 mV did not move the open claw at all. a stall only counts once the speed has gone over the moving rpm
+    constexpr int endEffectorClawHomeMv {1500};
+    constexpr double endEffectorClawHomeMovingRpm {15.0};
+    constexpr std::uint32_t endEffectorClawHomeGraceMs {250};
+    constexpr double endEffectorClawHomeStallRpm {5.0};
+    constexpr std::uint32_t endEffectorClawHomeTimeoutMs {2000};
+    //pivot homing: starts at its highest point, so drive up (positive) at this low voltage until it stalls, zero there
+    //(so 0 is the top and lowering goes negative). TODO tune
+    constexpr int endEffectorPivotHomeMv {3000};
+    constexpr double endEffectorPivotHomeMovingRpm {10.0};
+    constexpr std::uint32_t endEffectorPivotHomeGraceMs {250};
+    constexpr double endEffectorPivotHomeStallRpm {5.0};
+    constexpr std::uint32_t endEffectorPivotHomeTimeoutMs {2000};
+    //horizontal position (also the standard scoring position), the average of the two pivot motors (A reads ~-610, B ~-602). 0 is the top
+    constexpr double endEffectorPivotHorizontalDeg {-606.0};
+    //stow position of the pivot (average of the two motors)
+    constexpr double endEffectorPivotStowDeg {-115.0};
+    constexpr int endEffectorPivotRpm {100}; //max speed for pivot moves, 200 is full for green
+    constexpr int endEffectorClawRpm {100}; //max speed for claw moves, 200 is full for green
+    //claw encoder position when open (degrees, 1:1 with the motor), closed is 0
+    constexpr double endEffectorClawOpenDeg {212.0};
 
     //--------  command constants  --------
 

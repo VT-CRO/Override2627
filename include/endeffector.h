@@ -3,9 +3,7 @@
 namespace endeffector{
     void init();
 
-    void update();
+    void homeBlocking();
 
-    void handleInputs();
-
-    void requestRelease();
+    void test();
 }
