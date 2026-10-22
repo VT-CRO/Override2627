@@ -138,7 +138,7 @@ namespace constants{
     constexpr std::uint32_t endEffectorStallConfirmMs {40};
     //after a piece is detected the wheels keep pulling it in at this power for this long before dropping to hold. TODO tune
     constexpr double endEffectorSeatMv {7000.0};
-    constexpr std::uint32_t endEffectorSeatMs {400};
+    constexpr std::uint32_t endEffectorSeatMs {300};
     //very light slew: 0 to full in ~0.1 s, just enough to soften hard reversals. raise to be gentler
     constexpr double endEffectorVoltageSlewMvPerSec {120000.0};
 
