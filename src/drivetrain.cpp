@@ -139,8 +139,14 @@ namespace drivetrain{
         }
 
         //straight to the motors (LemLib odometry still tracks the robot, it reads the encoders on its own)
-        leftMotorGroup.move_voltage(static_cast<int>(leftVoltage));
-        rightMotorGroup.move_voltage(static_cast<int>(rightVoltage));
+        //move_voltage ignores the brake mode, so brake() only once the slew has fully ramped down to 0
+        if(throttleVoltage == 0 && turnVoltage == 0){
+            leftMotorGroup.brake();
+            rightMotorGroup.brake();
+        }else{
+            leftMotorGroup.move_voltage(static_cast<int>(leftVoltage));
+            rightMotorGroup.move_voltage(static_cast<int>(rightVoltage));
+        }
     }
 
     void drive(){
