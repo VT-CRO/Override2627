@@ -34,6 +34,8 @@ namespace constants{
     constexpr double driveVoltageRiseHighMvPerSec {7500.0};   //elevator up: 0 to 12 V in 1.6 s
     constexpr double driveVoltageFallHighMvPerSec {7500.0};
     //turning: stick scale and slew (fall faster than rise so it stops quickly). TODO tune with a driver
+    //smallest stick output (past the deadband) that still overcomes friction; the speed scaling never shrinks it
+    constexpr double driveMinOutput {10.0};
     constexpr double driveTurnScale {0.7};
     constexpr double driveTurnRiseMvPerSec {40000.0};
     constexpr double driveTurnFallMvPerSec {60000.0};

@@ -70,8 +70,8 @@ namespace drivetrain{
     );
 
     //TODO tune
-    lemlib::ExpoDriveCurve throttleCurve(3, 10, 1.019);
-    lemlib::ExpoDriveCurve steerCurve(3, 10, 1.019);
+    lemlib::ExpoDriveCurve throttleCurve(3, constants::driveMinOutput, 1.019);
+    lemlib::ExpoDriveCurve steerCurve(3, constants::driveMinOutput, 1.019);
 
     static lemlib::Chassis chassis(
         drivetrain,
@@ -108,8 +108,12 @@ namespace drivetrain{
 
         //top speed fades linearly from full (down) to elevatorTopSpeedScale (top), applied after the curve so it is exact
         double speedScale {1.0 - (1.0 - constants::elevatorTopSpeedScale) * height};
-        double throttle {throttleCurve.curve(leftY) * speedScale};
-        double turn {steerCurve.curve(rightX) * speedScale * constants::driveTurnScale};
+        //only the part above the friction minimum is scaled, so the minimum voltage jump survives
+        auto scaleAboveMin {[](double v, double scale){
+            return v == 0 ? 0.0 : std::copysign(constants::driveMinOutput + (std::abs(v) - constants::driveMinOutput) * scale, v);
+        }};
+        double throttle {scaleAboveMin(throttleCurve.curve(leftY), speedScale)};
+        double turn {scaleAboveMin(steerCurve.curve(rightX), speedScale * constants::driveTurnScale)};
 
         //time since the last loop. first call or a long gap: assume one 20 ms loop
         std::uint32_t now {pros::millis()};
