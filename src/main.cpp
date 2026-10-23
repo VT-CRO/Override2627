@@ -4,6 +4,7 @@
 #include "elevator.h"
 #include "endeffector.h"
 #include "commands.h"
+#include "auton.h"
 
 /**
  * Runs initialization code. This occurs as soon as the program is started.
@@ -11,9 +12,9 @@
  * All other competition modes are blocked by initialize; it is recommended
  * to keep execution time for this mode under a few seconds.
  */
-//homes the elevator and the claw at the same time; returns once both are done
-static void homeAll() {
-	pros::Task clawHome([] { endeffector::homeBlocking(); });
+//homes the elevator and the claw at the same time; returns once both are done. preload: a Pin starts in the claw
+static void homeAll(bool preload) {
+	pros::Task clawHome([preload] { endeffector::homeBlocking(preload); });
 	elevator::homeBlocking();
 	clawHome.join();
 }
@@ -40,7 +41,9 @@ void disabled() {}
  * This task will exit when the robot is enabled and autonomous or opcontrol
  * starts.
  */
-void competition_initialize() {}
+void competition_initialize() {
+	auton::select();
+}
 
 /**
  * Runs the user autonomous code. This function will be started in its own task
@@ -54,7 +57,9 @@ void competition_initialize() {}
  * from where it left off.
  */
 void autonomous() {
-	homeAll();
+	//the robot starts autonomous holding its preload Pin, so this is the preload home
+	homeAll(true);
+	auton::run();
 }
 
 /**
@@ -71,10 +76,32 @@ void autonomous() {
  * task, not resume it from where it left off.
  */
 void opcontrol() {
-	//no-op if autonomous already homed
-	homeAll();
+	//nothing homes on its own here: X homes (an empty claw), and a real autonomous or the X + Y test homes with the preload
+	//true while X is held together with Y, so letting go of X + Y doesn't also count as an X tap
+	bool xWithY {false};
 
 	while(true){
+		bool xHeld {constants::master.get_digital(pros::E_CONTROLLER_DIGITAL_X) != 0};
+		bool yHeld {constants::master.get_digital(pros::E_CONTROLLER_DIGITAL_Y) != 0};
+		xWithY = xWithY || (xHeld && yHeld);
+
+		//X + Y runs the selected auton (B or a stick stops it). the run drives everything, the elevator included
+		if(auton::driverTest()){
+			pros::delay(20);
+			continue;
+		}
+
+		//X tap (on release, so X + Y can still start the test): home everything again from scratch, like a fresh start.
+		//blocks driving until it's done
+		if(constants::master.get_digital_new_release(pros::E_CONTROLLER_DIGITAL_X) != 0){
+			if(!xWithY){
+				elevator::forgetHome();
+				endeffector::forgetHome();
+				homeAll(false);
+			}
+			xWithY = false;
+		}
+
 		//drivetrain commands
 		drivetrain::drive();
 
@@ -87,9 +114,7 @@ void opcontrol() {
 
 		//end effector control
 		//commands::score() is off while testing: it shares R2 with the claw test
-		endeffector::test();
-
-		//20ms periodic delay
+		endeffector::test();		//20ms periodic delay
 		pros::delay(20);
 	}
 }

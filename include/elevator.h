@@ -23,6 +23,12 @@ namespace elevator{
 
     void requestLift(double rotations);
 
+    //drive to an absolute height (motor rotations above the stow) and hold it, for autonomous
+    void requestHeight(double rotations);
+
+    //true once the elevator reached its target and is holding there
+    bool isSettled();
+
     bool isElevatorStowed();
 
     double getElevatorRotations();
