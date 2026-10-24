@@ -1,6 +1,7 @@
 #pragma once
 
-namespace drivetrain{
+namespace drivetrain
+{
     void userSwitchingModes();
 
     void drive();

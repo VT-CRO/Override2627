@@ -1,6 +1,7 @@
 #pragma once
 
-namespace endeffector{
+namespace endeffector
+{
     void init();
 
     void update();

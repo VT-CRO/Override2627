@@ -1,6 +1,7 @@
 #pragma once
 
-namespace commands{
+namespace commands
+{
 
     void score();
 

@@ -1,0 +1,68 @@
+# Static analysis rules for first-party code. See docs/CODING_GUIDELINES.md.
+# clangd (VS Code) reads this file automatically once compile_commands.json exists (`pros build-compile-commands`).
+# Needs clang-tidy / clangd 19 or newer (ExcludeHeaderFilterRegex).
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-throwing-static-initialization,
+  cppcoreguidelines-avoid-goto,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-macro-usage,
+  cppcoreguidelines-no-malloc,
+  cppcoreguidelines-owning-memory,
+  cppcoreguidelines-pro-type-cstyle-cast,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-special-member-functions,
+  misc-const-correctness,
+  misc-definitions-in-headers,
+  misc-redundant-expression,
+  misc-static-assert,
+  misc-unused-parameters,
+  misc-unused-using-decls,
+  misc-use-anonymous-namespace,
+  misc-use-internal-linkage,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-std-print,
+  performance-*,
+  -performance-enum-size,
+  readability-*,
+  -readability-identifier-length,
+  -readability-math-missing-parentheses,
+  -readability-trailing-comma,
+
+HeaderFilterRegex: '.*'
+ExcludeHeaderFilterRegex: '.*/include/(pros|lemlib|liblvgl|fmt|okapi)/.*|.*/include/(api|main)\.h'
+FormatStyle: file
+
+CheckOptions:
+  # NAM: lower_case namespaces, PascalCase types and enumerators, camelCase everything else.
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.TypeAliasCase: CamelCase
+  readability-identifier-naming.FunctionCase: camelBack
+  readability-identifier-naming.VariableCase: camelBack
+  readability-identifier-naming.ParameterCase: camelBack
+  readability-identifier-naming.MemberCase: camelBack
+  readability-identifier-naming.ConstexprVariableCase: camelBack
+  readability-identifier-naming.GlobalConstantCase: camelBack
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+
+  # STR-8: function size and complexity limits.
+  readability-function-size.LineThreshold: 60
+  readability-function-size.NestingThreshold: 4
+  readability-function-size.ParameterThreshold: 5
+  readability-function-cognitive-complexity.Threshold: 25
+
+  # CON-4: literals other than these must be named constants in constants.h.
+  readability-magic-numbers.IgnoredIntegerValues: '0;1;2;1000'
+  readability-magic-numbers.IgnoredFloatingPointValues: '0.0;0.5;1.0;2.0;1000.0'
+
+  readability-braces-around-statements.ShortStatementLines: 0
+  readability-implicit-bool-conversion.AllowPointerConditions: true
+  misc-const-correctness.WarnPointersAsValues: false

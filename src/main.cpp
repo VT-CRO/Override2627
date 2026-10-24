@@ -11,7 +11,8 @@
  * All other competition modes are blocked by initialize; it is recommended
  * to keep execution time for this mode under a few seconds.
  */
-void initialize() {
+void initialize()
+{
 	drivetrain::init();
 	elevator::init();
 	endeffector::init();
@@ -46,7 +47,8 @@ void competition_initialize() {}
  * will be stopped. Re-enabling the robot will restart the task, not re-start it
  * from where it left off.
  */
-void autonomous() {
+void autonomous()
+{
 	elevator::homeBlocking();
 }
 
@@ -63,29 +65,31 @@ void autonomous() {
  * operator control task will be stopped. Re-enabling the robot will restart the
  * task, not resume it from where it left off.
  */
-void opcontrol() {
-	//no-op if autonomous already homed
+void opcontrol()
+{
+	// no-op if autonomous already homed
 	elevator::homeBlocking();
 
-	while(true){
-		//drivetrain commands
+	while (true)
+	{
+		// drivetrain commands
 		drivetrain::drive();
 
-		//hold LEFT + RIGHT for 1.5 s to run the elevator auto-tune (on blocks!)
+		// hold LEFT + RIGHT for 1.5 s to run the elevator auto-tune (on blocks!)
 		elevator::autoTune();
 
-		//elevator control
+		// elevator control
 		elevator::handleInput();
 		elevator::update();
 
-		//end effector control
+		// end effector control
 		endeffector::handleInputs();
 		endeffector::update();
 
-		//commands
+		// commands
 		commands::score();
 
-		//20ms periodic delay
+		// 20ms periodic delay
 		pros::delay(20);
 	}
 }

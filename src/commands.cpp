@@ -5,11 +5,14 @@
 #include "lemlib/api.hpp"
 #include <cmath>
 
-namespace commands{
+namespace commands
+{
 
-    //R2: release the claw right away while the elevator lowers to the score end height. a new R1 press cancels the release
-    void score(){
-        if(constants::master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_R2) == 1){
+    // R2: release the claw right away while the elevator lowers to the score end height. a new R1 press cancels the release
+    void score()
+    {
+        if (constants::master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_R2) == 1)
+        {
             elevator::requestScoreEnd();
             endeffector::requestRelease();
         }

@@ -1,0 +1,56 @@
+# Formatting rules for first-party code. See docs/CODING_GUIDELINES.md, section FMT.
+# Only format first-party files (src/, and the top-level headers in include/ other than api.h and main.h).
+# Never run clang-format on vendored code: include/pros, include/lemlib, include/liblvgl, include/fmt, firmware/.
+Language: Cpp
+BasedOnStyle: Google
+Standard: Latest
+ColumnLimit: 120
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+
+# Subsystem namespaces wrap a whole file, and their contents are indented one level.
+NamespaceIndentation: All
+FixNamespaceComments: true
+IndentCaseLabels: true
+
+# Braces are attached and always present, even around one-line bodies.
+BreakBeforeBraces: Attach
+InsertBraces: true
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: Inline
+AllowShortCaseLabelsOnASingleLine: false
+
+DerivePointerAlignment: false
+PointerAlignment: Left
+SpaceBeforeParens: ControlStatements
+Cpp11BracedListStyle: true
+
+# Comments: always "// text", trailing comments two spaces after the code.
+SpacesInLineCommentPrefix:
+  Minimum: 1
+  Maximum: -1
+SpacesBeforeTrailingComments: 2
+ReflowComments: true
+
+SeparateDefinitionBlocks: Always
+MaxEmptyLinesToKeep: 1
+KeepEmptyLines:
+  AtStartOfBlock: false
+  AtStartOfFile: false
+InsertNewlineAtEOF: true
+
+# Include order: own header, standard library, PROS / LemLib, project headers.
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<[a-z_]+>$'
+    Priority: 2
+  - Regex: '^"(api|main)\.h"$|^"(pros|lemlib|liblvgl|fmt)/'
+    Priority: 3
+  - Regex: '^"'
+    Priority: 4
