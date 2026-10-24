@@ -106,7 +106,7 @@ namespace drivetrain{
         //anti tip: the higher the elevator, the gentler the limits (0 = down, 1 = top)
         double height {std::clamp(currentElevatorRotations / maxElevatorRotations, 0.0, 1.0)};
 
-        //top speed fades linearly from full (down) to elevatorTopSpeedScale (top), applied after the curve so it is exact
+        //top speed fades linearly from full (down) to elevatorTopSpeedScale (top), applied after the curve
         double speedScale {1.0 - (1.0 - constants::elevatorTopSpeedScale) * height};
         //only the part above the friction minimum is scaled, so the minimum voltage jump survives
         auto scaleAboveMin {[](double v, double scale){
