@@ -105,6 +105,9 @@ void opcontrol() {
 		//drivetrain commands
 		drivetrain::drive();
 
+		//tap RIGHT (under 1.5 s, without LEFT) to turn 90 deg and print the error and overshoot, for tuning angularController
+		commands::turnNinety();
+
 		//hold LEFT + RIGHT for 1.5 s to run the elevator auto-tune (on blocks!)
 		elevator::autoTune();
 

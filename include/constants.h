@@ -8,22 +8,22 @@ namespace constants{
     //motor ports negative for init reverse motion
     
     //drivetrain motors
-    constexpr int rightMotorOne {11}; 
-    constexpr int rightMotorTwo {-12};
-    constexpr int rightMotorThree {13};
-    constexpr int leftMotorOne {-1};
-    constexpr int leftMotorTwo {2};
-    constexpr int leftMotorThree {-3};
+    constexpr int rightMotorOne {6}; 
+    constexpr int rightMotorTwo {-10};
+    constexpr int rightMotorThree {8};
+    constexpr int leftMotorOne {-18};
+    constexpr int leftMotorTwo {19};
+    constexpr int leftMotorThree {-20};
 
     //elevator motors
-    constexpr int leftElevator {5};
-    constexpr int rightElevator {-19};
+    constexpr int leftElevator {11};
+    constexpr int rightElevator {-1};
     constexpr double elevatorMaxMotorRotations {6.4};
 
     //end effector (two pivot motors + claw motor)
-    constexpr int endEffectorPivotAPort {8};
-    constexpr int endEffectorPivotBPort {-6}; //negate if it spins opposite pivot A
-    constexpr int endEffectorClawPort {10};
+    constexpr int endEffectorPivotAPort {12};
+    constexpr int endEffectorPivotBPort {-2}; //negate if it spins opposite pivot A
+    constexpr int endEffectorClawPort {13};
 
     //--------  drivetrain constants  -------- 
     //driver control acceleration limits, same idea as the elevator: the voltage may only change so fast.
@@ -52,8 +52,6 @@ namespace constants{
     //intake position: motor rotations above the stowed position where the elevator sits to intake.
     //these are plain motor rotations, not measured heights (the DR4B's height per rotation is not constant)
     constexpr double elevatorIntakeRotations {1.3};
-    //how many rotations the elevator lifts when the claw detects a piece
-    constexpr double elevatorPieceLiftRotations {1.17};
     //gravity feedforward in millivolts: the voltage that just holds the lift still, at the bottom and at the top, blended
     //by position in between. measure it on the robot (hold it at each end and raise until it stops sagging). 0 = off,
     //the integral term then has to carry the load. a DR4B is normally heaviest to hold low, so expect Low > High. TODO tune
@@ -66,8 +64,6 @@ namespace constants{
     constexpr double elevatorGravityLowAtRotations {1.92};
     constexpr double elevatorGravityHighAtRotations {3.84};
     constexpr double elevatorLoadedStartRotations {0.88};
-
-    constexpr double elevatorZeroTolerance {0.5};
     constexpr int elevatorReturnTimeoutMs {4000};
     //the home (X, or autonomous) stops and zeroes on its own, checked only after elevatorHomeGraceMs of pushing.
     //if it never reaches the zero tension it zeroes anyway after elevatorManualHomeTimeoutMs. TODO tune
@@ -127,7 +123,7 @@ namespace constants{
     //spinning up), zero there. the timeout zeroes it anyway, so it must cover a full close from open. TODO tune
     //3000 mV did not move the open claw at all: the voltage has to break it free, or it zeroes wherever it stuck
     //1500 stalled the claw about 40 deg short of its stop on the re-home after the drop (it slowed to a crawl partway), so raised
-    constexpr int endEffectorClawHomeMv {2500};
+    constexpr int endEffectorClawHomeMv {4000};
     constexpr std::uint32_t endEffectorClawHomeGraceMs {250};
     constexpr double endEffectorClawHomeStallRpm {5.0};
     constexpr std::uint32_t endEffectorClawHomeTimeoutMs {2000};
@@ -147,7 +143,7 @@ namespace constants{
     constexpr int endEffectorPivotRpm {100}; //max speed for pivot moves, 200 is full for green
     constexpr int endEffectorClawRpm {100}; //max speed for claw moves, 200 is full for green
     //claw encoder position when open (degrees, 1:1 with the motor), closed is 0
-    constexpr double endEffectorClawOpenDeg {205};
+    constexpr double endEffectorClawOpenDeg {155};
     //homing with a preload Pin in the claw: the claw stalls on the Pin instead of its stop. this is where it stalls, in
     //the normal (empty home) degrees, so its zero can be shifted to match. measure: home empty, then close the claw on a
     //Pin and read the claw. measured
@@ -160,80 +156,65 @@ namespace constants{
     constexpr double endEffectorClawWiggleDeg {4.0};
     constexpr int endEffectorClawWiggles {2};
     constexpr std::uint32_t endEffectorClawWiggleMs {150};
-    //then before the pivot homes, the claw opens this much past the Pin grip (and waits this long) so the Pin can shift
-    //out of the way and the pivot reaches its normal top stop. TODO tune
-    constexpr double endEffectorClawPreloadReleaseDeg {20.0};
-    constexpr std::uint32_t endEffectorClawPreloadReleaseMs {250};
-    //picking up a lone Pin: the pivot angles down past horizontal before the claw closes. measured off the ground with
-    //the elevator at its intake height
-    constexpr double endEffectorPivotPinDeg {-779.5};
 
     //--------  command constants  --------
 
     //--------  auton constants  --------
-    //trapezoidal motion profiles for autonomous drives and turns: speed up at the accel, cruise at the max speed, slow down
-    //at the accel. lower = gentler. TODO tune
-    //slow for testing. the earlier values were 24 in/s, 36 in/s^2, 180 deg/s, 360 deg/s^2
-    constexpr double autonDriveMaxSpeed {8.0};    //inches per second
-    constexpr double autonDriveAccel {12.0};      //inches per second^2 (0 to max in 0.67 s)
-    constexpr double autonTurnMaxSpeed {60.0};    //degrees per second
-    constexpr double autonTurnAccel {120.0};      //degrees per second^2 (0 to max in 0.5 s)
-    //feedforward: output (out of 127) per unit of profile speed, so the robot keeps up with the profile instead of the PID
-    //chasing it. estimated from the wheels' free speed (200 rpm, 3.25" wheels = 34 in/s, 10" track = 390 deg/s), TODO tune
-    //drive: the estimate drove 14 in/s when the profile asked for 8 (overshooting every move), so scaled to match that
-    //drive's constant feedforward (out of 127) that keeps the robot moving against friction. the full driveMinOutput kept
-    //pushing as the profile slowed to a stop, and the weak PD needed ~2" of lead to cancel it, so every drive overshot by
-    //~1.2". lower = less overshoot, but too low and it won't start moving. TODO tune
-    constexpr double autonDriveKs {4.0};
-    constexpr double autonDriveKv {127.0 / 80.0};
-    //turn's constant feedforward, lowered from driveMinOutput (10) for the same reason as the drive's: turns ran 72-78 deg/s
-    //on a 60 deg/s profile and overshot 1-1.8 deg, then snapped back. TODO tune
-    constexpr double autonTurnKs {4.0};
-    constexpr double autonTurnKv {127.0 / 390.0};
-    //driveStraight's heading hold: output (out of 127) per degree off the starting heading, and per degree of change per
-    //10 ms for damping. much stiffer than the turning gains, which are too weak to stop a drive veering. TODO tune
-    constexpr double autonHeadingKp {7.0};
-    constexpr double autonHeadingKd {20.0};
-    //path.jerryio paths (pure pursuit): how far ahead on the path the robot aims (bigger = smoother but cuts corners),
-    //and how long one path may take. the speeds along a path come from the path file. TODO tune
-    constexpr float autonPathLookahead {10.0f};
-    constexpr int autonPathTimeoutMs {5000};
+    //how long one LemLib move may take before it gives up. TODO tune
+    constexpr int autonPathTimeoutMs {4000};
     //distance (inches) from the tracking center to the middle of the closed claw, straight ahead. TODO measure
-    constexpr float autonClawReach {11.75f};
+    constexpr float autonClawReach {12.65};
     //elevator height (motor rotations) that carries the claw just above a red Alliance Goal (3.25" tall) while it
     //holds 0, 1, 2, 3 Pins already Placed there. measured
-    constexpr std::array<double, 4> autonGoalScoreRotations {1.52, 2.57, 3.56, 4.64};    //driveTo skips its turn when the robot already faces the point within this many degrees (3 deg over a 25" drive is
-    //about 1.3" sideways). TODO tune
-    constexpr double autonSkipTurnDeg {3.0};
-    //waypoint moves and the goal approach (which the aligner squares anyway) are looser: they skip a turn under this many
-    //degrees (the drive just holds its heading, so the robot isn't turned back after the aligner squares it) and end a
-    //turn once within the tolerance. TODO tune
-    constexpr double autonLooseSkipTurnDeg {10.0};
-    constexpr double autonLooseTurnTolDeg {4.0};
-    //how much faster (times the profile's speed and acceleration) the moves that don't decide a position run: waypoints
-    //and the long first part of a drive. the last autonPickupSlowIn inches into a stack stay at the tuned speed. TODO tune
-    constexpr double autonFastScale {1.5};
-    constexpr double autonPickupSlowIn {6.0};
-    //scoring with the aligner: keep driving into the goal at the approach's own cruise power for this long, then back off by
-    //this many inches before dropping the Pin. the backoff sets where the claw ends up over the goal. TODO tune
-    constexpr std::uint32_t autonAlignMs {1300};
-    constexpr double autonAlignBackoff {3.0};
+    constexpr std::array<double, 4> autonGoalScoreRotations {1.52, 2.57, 3.56, 4.64};
+    //scoring: drive straight ahead at this power (0-127) until the drive motors stall against the goal (both sides under
+    //the stall rpm for the confirm time, after the grace time to get moving) or the timeout, then back off by
+    //autonAlignBackoff inches before dropping the Pin. the backoff sets where the claw ends up over the goal. TODO tune
+    //(green motors: 35 power runs about 55 rpm free)
+    constexpr int autonPushSpeed {35};
+    constexpr double autonPushStallRpm {10.0};
+    constexpr std::uint32_t autonPushGraceMs {300};
+    constexpr std::uint32_t autonPushStallConfirmMs {100};
+    constexpr int autonPushTimeoutMs {3000};
+    //heading hold during the push (power per degree off, and per degree of change per 10 ms): gentle, since the push
+    //power is low. raise P if it still meets the goal crooked, lower it (or raise D) if it weaves. TODO tune
+    constexpr double autonPushHeadingKp {1.3};
+    constexpr double autonPushHeadingKd {10};
+    //the hold's strength at the elevator's top, as a fraction of the above (full when it's down, linear in between): the
+    //higher layers swayed the robot into oscillating. TODO tune
+    constexpr double autonPushHeadingTopScale {0.3};
+    constexpr double autonAlignBackoff {3.25};
     //how far (motor rotations) the elevator lowers from the scoring height before the claw opens. TODO tune
-    constexpr double autonScoreDropRotations {0.3};
+    constexpr double autonScoreDropRotations {0.5};
     //the claw opens once the elevator is within this many rotations of the lowered height (not fully settled). TODO tune
     constexpr double autonScoreDropToleranceRotations {0.12};
     //how long the pivot gets to angle down for a Pin, or back up to horizontal, before the claw moves. TODO tune
     constexpr std::uint32_t autonPivotMs {400};
     //how far (inches) the robot has to get from a goal after dropping the preload before the claw closes to re-home
     //(it re-homes on the move). TODO tune
-    constexpr double autonRehomeClearance {6.0};
+    constexpr double autonRehomeClearance {1.0};
+    //picking a stack up off the ground: the last autonPickupSlowIn inches before the claw is over it run at
+    //autonPickupSpeed (0-127). TODO tune
+    constexpr double autonPickupSlowIn {6.0};
+    constexpr int autonPickupSpeed {50};
     //how long the claw gets to open or close before the robot moves. TODO tune
     constexpr std::uint32_t autonClawMs {300};
+    //how long the claw gets to open off a scored Pin before the elevator lifts away. starts at autonClawMs; lower it if
+    //the claw is clearly open sooner. TODO tune
+    constexpr std::uint32_t autonClawOpenMs {300};
+    //how far (inches) the robot backs from a goal after scoring before the elevator lowers to the intake height. TODO tune
+    constexpr double autonIntakeClearance {1.0};
+    //how far (motor rotations) the elevator lifts a Match Load above the intake height while still in the Loader: enough
+    //that it doesn't drag on the ground, not so much that the claw catches in the Loader. TODO tune
+    constexpr double autonLoadLiftRotations {0.2};
+    //how far (inches) the robot backs straight away from a goal after scoring before it turns, so the claw clears the
+    //Pin. TODO tune
+    constexpr double autonScoreClearIn {8.0};
 
 
     //misc
-    constexpr int radio {8};
-    constexpr int imu {16};
+    constexpr int radio {5};
+    constexpr int imu {15};
 
     //odometry pods, ADI (top port, bottom port). encoders need an adjacent pair: A-B, C-D, E-F or G-H
     constexpr char vertPodTop {'A'};
