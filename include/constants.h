@@ -8,22 +8,22 @@ namespace constants{
     //motor ports negative for init reverse motion
     
     //drivetrain motors
-    constexpr int rightMotorOne {6}; 
-    constexpr int rightMotorTwo {-10};
-    constexpr int rightMotorThree {8};
-    constexpr int leftMotorOne {-18};
-    constexpr int leftMotorTwo {19};
-    constexpr int leftMotorThree {-20};
+    constexpr int rightMotorOne {5}; 
+    constexpr int rightMotorTwo {-8};
+    constexpr int rightMotorThree {10};
+    constexpr int leftMotorOne {-20};
+    constexpr int leftMotorTwo {16};
+    constexpr int leftMotorThree {-18};
 
     //elevator motors
-    constexpr int leftElevator {11};
-    constexpr int rightElevator {-1};
+    constexpr int leftElevator {14};
+    constexpr int rightElevator {-3};
     constexpr double elevatorMaxMotorRotations {6.4};
 
     //end effector (two pivot motors + claw motor)
-    constexpr int endEffectorPivotAPort {12};
-    constexpr int endEffectorPivotBPort {-2}; //negate if it spins opposite pivot A
-    constexpr int endEffectorClawPort {13};
+    constexpr int endEffectorPivotAPort {11};
+    constexpr int endEffectorPivotBPort {-1}; //negate if it spins opposite pivot A
+    constexpr int endEffectorClawPort {12};
 
     //--------  drivetrain constants  -------- 
     //driver control acceleration limits, same idea as the elevator: the voltage may only change so fast.
@@ -213,8 +213,8 @@ namespace constants{
 
 
     //misc
-    constexpr int radio {5};
-    constexpr int imu {15};
+    constexpr int radio {6};
+    constexpr int imu {2};
 
     //odometry pods, ADI (top port, bottom port). encoders need an adjacent pair: A-B, C-D, E-F or G-H
     constexpr char vertPodTop {'A'};
