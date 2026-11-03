@@ -3,6 +3,8 @@
 #include "config/drivetrain.h"
 #include "config/elevator.h"
 #include "config/ports.h"
+#include "util/turn_controller.h"
+#include "util/turn_schedule.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -31,6 +33,31 @@ constexpr float horizTickRatio {19.94};
 //the robot walking while it spins: vert is on the centerline (under 0.3 in), horiz is 1.84 in in front
 //sign flipped from the measured +1.84: a 90 deg turn in place moved the pose 5.4 in sideways (about 2 x 1.84 x the turn in radians)
 constexpr float horizOffsetIn {-1.84};
+
+//LemLib angular settings for the model at height. turns use TurnController, so this is only moveToPoint's steering. LemLib outputs -127..127 (12 V), runs every 10 ms, and its D / I are
+//per loop, so the mV-per-degree gains are converted
+lemlib::ControllerSettings angularSettingsAt(double height){
+    TurnModel m {turnModelAt(height)};
+    constexpr double toLemlib {127.0 / 12000.0};
+    constexpr double loopS {0.01};
+    double kP {m.kA * cfg::turnWn * cfg::turnWn};
+    double kD {cfg::turnDScale * std::max(0.0, 2 * cfg::turnWn * m.kA - m.kV)};
+    return lemlib::ControllerSettings(
+        static_cast<float>(kP * toLemlib),
+        static_cast<float>(kP * loopS / cfg::turnIntegralTimeS * toLemlib),  //I, only within the windup range
+        static_cast<float>(kD * toLemlib / loopS),
+        static_cast<float>(cfg::turnWindupDeg),
+        1,  //exits once within 1 deg for 100 ms
+        100,
+        3,  //or within 3 deg for 500 ms
+        500,
+        0  //slew off: LemLib's slew also limits braking, and at 15 the 90 deg test overshot 15-21 deg
+    );
+}
+
+double elevatorHeight(const Elevator& elevator){
+    return std::clamp(elevator.rotations() / config::elevator::maxMotorRotations, 0.0, 1.0);
+}
 }
 
 Drivetrain::Drivetrain(pros::v5::Controller& master, const Elevator& elevator)
@@ -64,22 +91,8 @@ Drivetrain::Drivetrain(pros::v5::Controller& master, const Elevator& elevator)
               500,
               20  //slew rate, max output change per 10 ms
           ),
-          //angular. from the rotation sysID (hold RIGHT alone): kS 1529 mV, kV 15.23 mV per deg/s, kA 2.742 mV per deg/s^2.
-          //in LemLib units (127 = 12 V, D per 10 ms loop) that is kS 16.2, kV 0.161 per deg/s, kA 0.029 per deg/s^2.
-          //critically damped at natural frequency wn: P = kA wn^2, D = 100 (2 kA wn - kV). wn 20 rad/s here (was 15: P 6.53,
-          //D 71; before that 9.7: P 2.74, D 40.27). kS / P (the deadband the
-          //integral has to creep through) is 1.4 deg. if turnBy shows overshoot, raise D a little
-          lemlib::ControllerSettings(
-              11.6,  //P
-              0.068,  //I, only within the windup range below, to push through friction
-              115,  //D, 15% over the critically damped 100: with 100 the 90 deg test still overshot 0.5-5 deg (sensor lag)
-              6,  //integral only counts within this many degrees of the target
-              1,  //exits once within 1 deg for 100 ms
-              100,
-              3,  //or within 3 deg for 500 ms
-              500,
-              0  //slew off: LemLib's slew also limits braking, and at 15 the 90 deg test overshot 15-21 deg
-          ),
+          //angular (moveToPoint steering only): from the turning model in config/drivetrain.h, elevator down
+          angularSettingsAt(0),
           lemlib::OdomSensors(&vertPod, nullptr, &horizPod, nullptr, &imu),
           &throttleCurve,
           &steerCurve) {}
@@ -107,7 +120,7 @@ void Drivetrain::drive(){
     }
 
     //anti tip: the higher the elevator, the gentler the limits (0 = down, 1 = top)
-    double height {std::clamp(elevator.rotations() / config::elevator::maxMotorRotations, 0.0, 1.0)};
+    double height {elevatorHeight(elevator)};
 
     //top speed fades linearly from full (down) to elevatorTopSpeedScale (top), applied after the curve so it is exact
     double speedScale {1.0 - (1.0 - cfg::elevatorTopSpeedScale) * height};
@@ -131,9 +144,33 @@ void Drivetrain::drive(){
                                   blend(cfg::voltageFallLowMvPerSec, cfg::voltageFallHighMvPerSec), dtSec);
     turnVoltage = slewVoltage(turn * 12000.0 / 127.0, turnVoltage, cfg::turnRiseMvPerSec, cfg::turnFallMvPerSec, dtSec);
 
+    //heading hold: the turn stick (and its slew) back at 0 for headingHoldDelayMs, so the spin has coasted out, then
+    //lock the heading. the hold only steers while driving, and a stop re-locks wherever the robot then points
+    double theta {chassis.getPose().theta};
+    double turnRate {(theta - lastTheta) / dtSec};
+    lastTheta = theta;
+    if(turn != 0 || turnVoltage != 0){
+        holdingHeading = false;
+        turnReleasedAt = now;
+    }else if(throttleVoltage == 0){
+        holdingHeading = false;
+    }else if(!holdingHeading && now - turnReleasedAt >= cfg::headingHoldDelayMs){
+        holdingHeading = true;
+        holdHeading = theta;
+    }
+    double correction {0};
+    if(holdingHeading){
+        //critically damped PD from the turning model at this height, so the hold acts the same with the elevator up or down
+        TurnModel m {turnModelAt(height)};
+        double kP {m.kA * cfg::headingHoldWn * cfg::headingHoldWn};
+        double kD {std::max(0.0, 2 * cfg::headingHoldWn * m.kA - m.kV)};
+        correction = std::clamp(kP * std::remainder(holdHeading - theta, 360.0) - kD * turnRate,
+                                -cfg::headingHoldMaxMv, cfg::headingHoldMaxMv);
+    }
+
     //arcade mix into left/right, scaling both down together if one side goes past 12 V (keeps the turn ratio)
-    double leftVoltage {throttleVoltage + turnVoltage};
-    double rightVoltage {throttleVoltage - turnVoltage};
+    double leftVoltage {throttleVoltage + turnVoltage + correction};
+    double rightVoltage {throttleVoltage - turnVoltage - correction};
     double biggest {std::max(std::abs(leftVoltage), std::abs(rightVoltage))};
     if(biggest > 12000){
         leftVoltage *= 12000 / biggest;
@@ -159,7 +196,7 @@ void Drivetrain::turnBy(double degrees){
         //the tracking center physically ends where it started, so compare the pose after the fourth to before the first
         lemlib::Pose startPose {chassis.getPose()};
         std::uint32_t start {pros::millis()};
-        chassis.turnToHeading(targetTheta, 3000, {}, true);
+        turnToHeading(targetTheta, 3000, 0, 1, true);
         //first time within 3 and 1 deg of the target (how fast it gets there), 0 = never
         std::uint32_t within3Ms {0};
         std::uint32_t within1Ms {0};
@@ -192,7 +229,96 @@ void Drivetrain::turnBy(double degrees){
                     static_cast<unsigned long>(doneMs));
         std::printf("  pose: (%.2f, %.2f) -> (%.2f, %.2f), moved %.2f in during the turn\n", startPose.x, startPose.y,
                     chassis.getPose().x, chassis.getPose().y, std::hypot(chassis.getPose().x - startPose.x, chassis.getPose().y - startPose.y));
+        //every loop of the turn, to paste into a spreadsheet or back to whoever is tuning it
+        std::printf("  log: ms,height,heading,gyro_dps,heading_dps,plan_accel,mv\n");
+        for(const auto& row : turnLog){
+            std::printf("  %.0f,%.2f,%.2f,%.1f,%.1f,%.0f,%.0f\n", row[0], row[1], row[2], row[3], row[4], row[5], row[6]);
+            pros::delay(3);    //let the terminal keep up: at 1 ms it dropped lines
+        }
     });
+}
+
+void Drivetrain::turnToHeading(double heading, std::uint32_t timeoutMs, double exitRangeDeg, double speedFraction,
+                               bool async, std::shared_ptr<std::atomic<bool>> started){
+    chassis.requestMotionStart();
+    if(started){
+        started->store(true);
+    }
+    //cancelled while it waited in the queue
+    if(!chassis.motionActive()){
+        return;
+    }
+    if(async){
+        //the same hand-off LemLib's own motions use: the task queues behind this slot, which is freed right away.
+        //wait until the task really holds the slot before returning: a fixed delay isn't enough when other tasks are
+        //busy, and the caller's isInMotion() then reads false, so it moves on (and cancels) before the turn starts
+        auto started {std::make_shared<std::atomic<bool>>(false)};
+        pros::Task([=, this]{ turnToHeading(heading, timeoutMs, exitRangeDeg, speedFraction, false, started); });
+        chassis.endMotion();
+        for(int i {0}; i < 100 && !started->load(); i++){
+            pros::delay(1);
+        }
+        return;
+    }
+
+    double theta {chassis.getPose().theta};
+    double target {theta + std::remainder(heading - theta, 360.0)};
+    //the limits are fixed for the whole turn from the elevator's height now; the gains follow it every loop
+    double startHeight {elevatorHeight(elevator)};
+    TurnController turn(turnSettings());
+    turn.start(theta, target, turnLimitsAt(startHeight, turnModelAt(startHeight), speedFraction));
+    std::uint32_t start {pros::millis()};
+    std::uint32_t last {start};
+    double lastTurnTheta {theta};
+    bool handedOver {false};
+    //guard against a wrong config imuRateSign: a reversed rate would make the D term push the turn along instead of
+    //damping it, so after 50 ms of the gyro and the heading disagreeing at speed, use the heading's difference instead
+    bool gyroTrusted {true};
+    int gyroDisagrees {0};
+    turnLog.clear();
+    turnLog.reserve(timeoutMs / 10 + 1);
+    while(chassis.motionActive() && pros::millis() - start < timeoutMs && !turn.settled()){
+        pros::delay(10);
+        std::uint32_t now {pros::millis()};
+        double dtS {std::max<std::uint32_t>(now - last, 1) / 1000.0};
+        last = now;
+        theta = chassis.getPose().theta;
+        double headingRate {(theta - lastTurnTheta) / dtS};
+        lastTurnTheta = theta;
+        //the gyro's own rate: no 10 ms differencing delay or quantization noise for the D term and the lag prediction
+        double gyroRate {imu.turnRate()};
+        gyroDisagrees = (std::abs(headingRate) > 30 && gyroRate * headingRate < 0) ? gyroDisagrees + 1 : 0;
+        if(gyroTrusted && gyroDisagrees >= 5){
+            gyroTrusted = false;
+            std::printf("turn: the IMU's gyro rate runs opposite the heading, flip config::drivetrain::imuRateSign. "
+                        "using the heading's difference for now\n");
+        }
+        double rate {gyroTrusted ? gyroRate : headingRate};
+        if(exitRangeDeg > 0 && std::abs(target - theta) < exitRangeDeg){
+            handedOver = true;
+            break;
+        }
+        double height {elevatorHeight(elevator)};
+        double mv {turn.update(theta, rate, turnModelAt(height), turnFeedbackWnAt(height), dtS)};
+        turnLog.push_back({static_cast<float>(now - start), static_cast<float>(height), static_cast<float>(theta),
+                           static_cast<float>(gyroRate), static_cast<float>(headingRate),
+                           static_cast<float>(turn.referenceAccel()), static_cast<float>(mv)});
+        leftMotors.move_voltage(static_cast<int>(mv));
+        rightMotors.move_voltage(static_cast<int>(-mv));
+    }
+    //a hand-over leaves the motors running for the move that follows (like LemLib's early exit), and a cancel leaves
+    //them to whoever cancelled
+    if(!handedOver && chassis.motionActive()){
+        leftMotors.brake();
+        rightMotors.brake();
+    }
+    chassis.endMotion();
+}
+
+void Drivetrain::turnToPoint(double x, double y, std::uint32_t timeoutMs, double exitRangeDeg, double speedFraction,
+                             bool async){
+    lemlib::Pose pose {chassis.getPose()};
+    turnToHeading(lemlib::radToDeg(std::atan2(x - pose.x, y - pose.y)), timeoutMs, exitRangeDeg, speedFraction, async);
 }
 
 void Drivetrain::pushUntilStall(int power, std::uint32_t timeoutMs, double heading){

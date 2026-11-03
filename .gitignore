@@ -20,3 +20,5 @@ project.pros.bak
 
 # MacOS
 .DS_Store
+# turn sim plot (python test/plot_turn.py)
+test/turn_plot.html

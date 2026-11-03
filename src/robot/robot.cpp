@@ -1,4 +1,5 @@
 #include "robot/robot.h"
+#include "config/elevator.h"
 #include <cmath>
 
 Robot::Robot()
@@ -102,6 +103,16 @@ void Robot::driverControl(){
             }
             rightPressedAt = 0;
         }
+
+        //hold RIGHT alone for 1.5 s to run the drivetrain rotation sysID (on the floor, elevator homed). it moves the
+        //elevator to each test height itself, through this
+        drivetrain.rotationSysId([this, requested = -1.0](double fraction) mutable {
+            if(fraction != requested){
+                elevator.requestHeight(fraction * config::elevator::maxMotorRotations);
+                requested = fraction;
+            }
+            elevator.update();
+        });
 
         //hold LEFT + RIGHT for 1.5 s to run the elevator auto-tune (on blocks!)
         elevator.autoTune();

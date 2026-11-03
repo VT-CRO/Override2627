@@ -25,9 +25,8 @@ const lemlib::MoveToPointParams back {.forwards = false, .maxSpeed = 127};
 //instead of stopping (the turn and pickup after it aim from wherever the robot ends up). TODO tune
 const lemlib::MoveToPointParams backThrough {.forwards = false, .maxSpeed = 127, .minSpeed = 30, .earlyExitRange = 2};
 //every turn is followed by a move that steers or aligns itself (moveToPoint, or the push into the goal's aligner), so
-//turns hand over once within 3 deg instead of settling to 1 deg (minSpeed 1 only turns the early exit on)
-const lemlib::TurnToHeadingParams turn {.maxSpeed = 127, .minSpeed = 1, .earlyExitRange = 3};
-const lemlib::TurnToPointParams aim {.maxSpeed = 127, .minSpeed = 1, .earlyExitRange = 3};
+//turns hand over once within 3 deg instead of settling to 1 deg
+constexpr double turnHandoverDeg {3};
 
 constexpr int timeoutMs {cfg::pathTimeoutMs};
 
@@ -68,9 +67,7 @@ void Auton::watchTurn(const char* label, double target){
 double Auton::facePoint(const char* label, double x, double y, float maxSpeed){
     lemlib::Pose pose {chassis.getPose()};
     double heading {lemlib::radToDeg(std::atan2(x - pose.x, y - pose.y))};
-    lemlib::TurnToPointParams params {aim};
-    params.maxSpeed = maxSpeed;
-    chassis.turnToPoint(x, y, timeoutMs, params, true);
+    drivetrain.turnToPoint(x, y, timeoutMs, turnHandoverDeg, maxSpeed / 127.0, true);
     watchTurn(label, heading);
     //aim from where the turn ended, not where it started: after a backThrough the robot is still rolling as it turns,
     //and the start's heading sent the push clockwise of the Match Load's goal
@@ -211,9 +208,9 @@ void Auton::preloadTest(){
     endEffector.clampPreload();
     elevator.requestHeight(cfg::goalScoreRotations[0]);
 
-    //out along the wall to the goal's column, face the goal, and push into it
+    //out perpendicular the wall to the goal's column, face the goal, and push into it
     chassis.moveToPoint(0, 15, timeoutMs, drive, false);
-    chassis.turnToHeading(90, timeoutMs, turn, true);
+    drivetrain.turnToHeading(90, timeoutMs, turnHandoverDeg, 1, true);
     watchTurn("to the preload goal", 90);
     score(0, 90);
 
