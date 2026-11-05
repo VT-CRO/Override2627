@@ -183,19 +183,6 @@ void EndEffector::pivotTo(double deg){
 //the elevator to its intake height; releasing R1 closes the claw.
 //if the pivots fight each other, negate pivotBPort in config/ports.h
 void EndEffector::test(){
-    //only take over the pivot from a move_absolute while the stick is used, or when it was just released
-    int pivot {master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_Y)};
-    if(std::abs(pivot) >= 10){
-        stickActive = true;
-        pivotA.move_voltage(pivot * cfg::testPivotMvPerStick);
-        pivotB.move_voltage(pivot * cfg::testPivotMvPerStick);
-    }
-    else if(stickActive){
-        stickActive = false;
-        pivotA.brake();
-        pivotB.brake();
-    }
-
     if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_R1) != 0){
         openClaw();
         pivotTo(cfg::pivotHorizontalDeg);
