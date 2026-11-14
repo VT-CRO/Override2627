@@ -27,7 +27,7 @@ namespace config::endeffector{
     //homeBlocking waits for the pivot to get this close to stow (or time out) so the elevator doesn't move first
     constexpr double pivotStowToleranceDeg {10.0};
     constexpr std::uint32_t pivotStowTimeoutMs {2000};
-    constexpr int pivotRpm {100}; //max speed for pivot moves, 200 is full for green
+    constexpr int pivotRpm {33}; //max speed for pivot moves, 200 is full for green. was 100, cut to a third for the 3x multiplier on the pivot
     constexpr int clawRpm {100}; //max speed for claw moves, 200 is full for green
     //claw encoder position when open (degrees, 1:1 with the motor), closed is 0
     constexpr double clawOpenDeg {155};
