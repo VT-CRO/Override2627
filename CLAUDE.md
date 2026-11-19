@@ -21,10 +21,12 @@ Run `pros make clean` first if it says "Nothing to be done". Sources under `src/
 src/main.cpp              PROS hooks only, forwards to Robot
 src/robot/                Robot: owns controller + subsystems, homing, driver loop, X+Y auton test
 src/subsystems/           Drivetrain, Elevator, EndEffector (each class owns its motors and state)
-src/auton/                Auton: routine selector and the routines
+src/auton/                Auton: routine selector, shared helpers (auton.cpp) and the skills run (skills.cpp)
 src/tune/                 Auto-tune / sysID code, defined as methods of the subsystem it tunes
 include/<same folders>    Headers
-include/config/           All ports and tuning numbers, one header per area (namespace config::<area>)
+include/config/           All ports and tuning numbers, one header per area (namespace config::<area>):
+                          ports, drivetrain, elevator, endeffector, auton
+skills.cpp.bak            Old backup of the skills routine, not built
 include/lemlib|fmt|liblvgl|pros, firmware/   Vendored. Do not edit.
 ```
 
@@ -35,14 +37,24 @@ include/lemlib|fmt|liblvgl|pros, firmware/   Vendored. Do not edit.
 - `Robot` is the only place that wires subsystems together.
 - Motors only run once the robot is enabled, so homing happens in `autonomous` / the X button, not `initialize`.
 
+- Auton coordinates are local: the start pose is (0, 0) heading 0, +y forward, +x right. `score()` shifts the origin to the goal (`scoreShiftX/Y`).
+- Homing: autonomous and the X + Y test home with the preload held (`homeAll(true)`); an X tap homes with an empty claw. The Skills routine homes the elevator while it drives (`homesElevatorWhileMoving`).
+
+## Autons
+
+Selected on the controller screen in `competition_initialize` (LEFT/RIGHT cycle, default is the first): Skills, Turn 90, Drive 48, OG Preload, Match Left, Match Right, None. Turn 90 and Drive 48 are odometry/tuning tests that show the pose on the brain screen.
+
 ## Controls (driver)
 
-- X tap: re-home everything. X + Y: run the selected auton (B or a stick stops it).
-- L1/L2 elevator up/down, Y/A/Up/Down/B elevator levels. R1/R2 and right stick: claw and pivot bench test.
+- X tap: re-home everything (empty claw, blocks driving). X + Y: run the selected auton (B or a stick stops it).
+- L1/L2 elevator manual up/down. Y / A jump to elevator levels 1 / 3 (steps of `stepsPerSection`). B stows the elevator to zero.
+- UP held raises the pivot, DOWN held lowers it, neither holds. R1 held: open claw, pivot horizontal, elevator to intake height; release closes the claw. R2: close claw, pivot to stow.
 - RIGHT tap: 90 deg turn test. LEFT + RIGHT held 1.5 s: elevator auto-tune (on blocks).
+- Drive is arcade (left stick Y, right stick X) with slew limits and speed scaled down as the elevator rises (anti tip).
 
 ## Known leftovers
 
-- `Drivetrain::rotationSysId` is defined but nothing calls it.
+- `Drivetrain::rotationSysId` is declared and defined in `src/tune/drivetrain_tune.cpp` but nothing calls it.
 - `matchLeft` / `matchRight` autons are empty stubs.
+- Many values in `config/auton.h` and the drivetrain PID are still marked TODO tune.
 - Slew-rate code (drivetrain vs elevator) and the `sense/tick/emit` helpers in the two tune files are duplicated on purpose; they use different tuning.

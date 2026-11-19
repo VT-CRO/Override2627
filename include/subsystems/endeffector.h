@@ -23,9 +23,15 @@ public:
     void test();
 
     //claw and pivot moves for autonomous. they return right away, the motors finish the move on their own
-    void openClaw();
+    //extraDeg opens it that many degrees past the normal open position (clawOpenDeg)
+    void openClaw(double extraDeg = 0);
 
-    void closeClaw();
+    //opens the claw at rpm until it stalls on its open stop, so it is as wide as it can go, then holds there. runs in the
+    //background and returns right away; closeClaw() waits for it to finish
+    void openClawFully(int rpm);
+
+    //extraDeg closes it that many degrees past the normal closed position, so it squeezes whatever it is holding harder
+    void closeClaw(double extraDeg = 0);
 
     //both pivot motors to this angle (0 = top, config::endeffector::pivotHorizontalDeg = scoring)
     void pivotTo(double deg);
@@ -51,8 +57,12 @@ private:
     //of the code keeps using the normal degrees. 0 after an empty home
     double clawOffsetDeg {0};
     bool clawRehoming {false};
+    //true while openClawFully() is still opening, so closeClaw() doesn't cancel it half way
+    bool clawOpeningFully {false};
     bool clawHomed {false};
     bool pivotHomed {false};
     //bench test: only take over the pivot from a move_absolute while the stick is used, or when it was just released
     bool stickActive {false};
+    //UP / DOWN pivot jog is driving the pivot, so it has to brake once when released
+    bool pivotManual {false};
 };

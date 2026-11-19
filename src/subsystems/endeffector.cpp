@@ -11,8 +11,8 @@ namespace cfg = config::endeffector;
 EndEffector::EndEffector(pros::v5::Controller& master, Elevator& elevator)
     : master(master),
       elevator(elevator),
-      pivotA(config::ports::pivotAPort, config::ports::endEffectorGearRatio),
-      pivotB(config::ports::pivotBPort, config::ports::endEffectorGearRatio),
+      pivotA(config::ports::pivotAPort, config::ports::pivotGearRatio),
+      pivotB(config::ports::pivotBPort, config::ports::pivotGearRatio),
       claw(config::ports::clawPort, config::ports::endEffectorGearRatio) {}
 
 
@@ -151,7 +151,7 @@ void EndEffector::clampPreload(){
         //until the swing is done
         claw.move_voltage(-cfg::clawClampMv);
         pros::delay(config::auton::clawMs);
-        pivotTo(cfg::pivotHorizontalDeg);
+        pivotTo(cfg::pivotPreloadDeg);
         pros::delay(config::auton::pivotMs);
         //wiggle the claw open a couple degrees and shut again, so a Pin stuck at an awkward angle settles square. the
         //zero is the Pin grip, so + is open; shutting is the clamp voltage, which the Pin stops
@@ -166,12 +166,48 @@ void EndEffector::clampPreload(){
     });
 }
 
-void EndEffector::openClaw(){
-    claw.move_absolute(cfg::clawOpenDeg + clawOffsetDeg, cfg::clawRpm);
+void EndEffector::openClaw(double extraDeg){
+    claw.move_absolute(cfg::clawOpenDeg + extraDeg + clawOffsetDeg, cfg::clawRpm);
 }
 
-void EndEffector::closeClaw(){
-    claw.move_absolute(clawOffsetDeg, cfg::clawRpm);
+void EndEffector::openClawFully(int rpm){
+    clawOpeningFully = true;
+    pros::Task([this, rpm]{
+        uint32_t start {pros::millis()};
+        uint32_t slowSince {0};
+        claw.move_velocity(rpm);
+        while(true){
+            uint32_t elapsed {pros::millis() - start};
+            //a stall is the claw slowing to a stop on its open stop, after a grace time for the start from rest
+            bool slow {elapsed > 150 && std::abs(claw.get_actual_velocity()) < 10};
+            if(!slow){
+                slowSince = 0;
+            }
+            else if(slowSince == 0){
+                slowSince = pros::millis();
+            }
+            //the gear slipping a notch makes the claw slow down for a moment before it carries on, so it keeps opening for
+            //at least 500 ms and has to stay stopped for 400 ms to count (was 60 ms, which ended the open one slip early)
+            if((elapsed > 450 && slowSince != 0 && pros::millis() - slowSince >= 400) || elapsed > 2000){
+                break;
+            }
+            pros::delay(10);
+        }
+        std::printf("openClawFully: stopped at %.1f deg after %u ms\n", claw.get_position() - clawOffsetDeg,
+                    static_cast<unsigned>(pros::millis() - start));
+        claw.brake();
+        clawOpeningFully = false;
+    });
+}
+
+void EndEffector::closeClaw(double extraDeg){
+    while(clawOpeningFully){
+        pros::delay(10);
+    }
+    double target {clawOffsetDeg - extraDeg - cfg::clawCloseExtraDeg};
+    std::printf("closeClaw: claw at %.1f deg, going to %.1f deg, motor %.0f C\n", claw.get_position(), target,
+                claw.get_temperature());
+    claw.move_absolute(target, cfg::clawCloseRpm);
 }
 
 void EndEffector::pivotTo(double deg){
@@ -196,5 +232,25 @@ void EndEffector::test(){
     if(master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_R2) != 0){
         closeClaw();
         pivotTo(cfg::pivotStowDeg);
+    }
+
+    //UP held raises the pivot, DOWN held lowers it, neither holds it where it is (brake hold). 0 is the top, so up is
+    //positive. once homed, it won't drive past the top zero. both held cancels out
+    bool upHeld {master.get_digital(pros::E_CONTROLLER_DIGITAL_UP) != 0};
+    bool downHeld {master.get_digital(pros::E_CONTROLLER_DIGITAL_DOWN) != 0};
+    int direction {(upHeld ? 1 : 0) - (downHeld ? 1 : 0)};
+    if(direction > 0 && pivotHomed && (pivotA.get_position() + pivotB.get_position()) / 2 >= 0){
+        direction = 0;
+    }
+    if(direction != 0){
+        pivotA.move_velocity(direction * cfg::pivotRpm);
+        pivotB.move_velocity(direction * cfg::pivotRpm);
+        pivotManual = true;
+    }
+    else if(pivotManual){
+        //only on release, so this doesn't cancel a pivotTo() move from R1/R2 every loop
+        pivotA.brake();
+        pivotB.brake();
+        pivotManual = false;
     }
 }

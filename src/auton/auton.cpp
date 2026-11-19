@@ -1,11 +1,10 @@
 #include "auton/auton.h"
 #include "config/auton.h"
+#include "config/drivetrain.h"
 #include "config/elevator.h"
-#include <array>
-#include <atomic>
+#include <algorithm>
 #include <cmath>
-#include <functional>
-
+#include <cstdio>
 
 namespace cfg = config::auton;
 
@@ -19,123 +18,95 @@ namespace {
 //(46.66, 23.11) from the red corner), so expect them to be off by an inch or two on a real field
 
 //LemLib's maxSpeed is 0-127 (TODO tune on the robot)
-const lemlib::MoveToPointParams drive {.forwards = true, .maxSpeed = 127};
-const lemlib::MoveToPointParams back {.forwards = false, .maxSpeed = 127};
-//backing out to a waypoint that is only there to reposition: hand over to the next turn within 2 in, still moving,
+const lemlib::MoveToPointParams back {.forwards = false};
+//backing out to a spot that is only there to reposition: hand over to the next turn within 2 in, still moving,
 //instead of stopping (the turn and pickup after it aim from wherever the robot ends up). TODO tune
-const lemlib::MoveToPointParams backThrough {.forwards = false, .maxSpeed = 127, .minSpeed = 30, .earlyExitRange = 2};
+const lemlib::MoveToPointParams backThrough {.forwards = false, .minSpeed = 30, .earlyExitRange = 2};
 //every turn is followed by a move that steers or aligns itself (moveToPoint, or the push into the goal's aligner), so
 //turns hand over once within 3 deg instead of settling to 1 deg (minSpeed 1 only turns the early exit on)
-const lemlib::TurnToHeadingParams turn {.maxSpeed = 127, .minSpeed = 1, .earlyExitRange = 3};
-const lemlib::TurnToPointParams aim {.maxSpeed = 127, .minSpeed = 1, .earlyExitRange = 3};
+const lemlib::TurnToHeadingParams turn {.minSpeed = 1, .earlyExitRange = 3};
 
 constexpr int timeoutMs {cfg::pathTimeoutMs};
 
+//tracking center to the goal's center once stalled against it: score() backs off alignBackoff so the claw is
+//over the goal, so the robot must have stopped that far past the claw-over spot
+constexpr double contactIn {cfg::clawReach - cfg::alignBackoff};
 }
 
-//watch a turn that was just started (async) toward `target` deg and print how it went, for tuning angularController:
-//the size of the turn, how long it took, the error and overshoot when it handed over, its peak speed, and the heading
-//200 ms later (how far it kept rotating after the handover). blocks until the turn ends
-void Auton::watchTurn(const char* label, double target){
-    double start {chassis.getPose().theta};
-    double degrees {std::remainder(target - start, 360.0)};
-    double sign {degrees < 0 ? -1.0 : 1.0};
-    std::uint32_t startMs {pros::millis()};
-    double overshoot {0};
-    double peakSpeed {0};
-    double last {start};
-    pros::delay(10);    //let the async motion start before watching isInMotion
-    while(chassis.isInMotion()){
-        double theta {chassis.getPose().theta};
-        overshoot = std::max(overshoot, std::remainder(theta - target, 360.0) * sign);
-        peakSpeed = std::max(peakSpeed, std::abs(theta - last) * 100);    //10 ms loop, so deg/s
-        last = theta;
-        pros::delay(10);
-    }
-    double end {chassis.getPose().theta};
-    std::printf("turn %s: %.1f deg in %lu ms, error %.2f deg at handover, overshoot %.2f deg, peak %.0f deg/s\n",
-                label, degrees, static_cast<unsigned long>(pros::millis() - startMs),
-                std::remainder(target - end, 360.0), overshoot, peakSpeed);
-    pros::Task([this, label, target]{
-        pros::delay(200);
-        std::printf("turn %s: error %.2f deg 200 ms after handover\n", label,
-                    std::remainder(target - chassis.getPose().theta, 360.0));
-    });
-}
-
-//turnToPoint with the turn printed (see watchTurn). label names the turn in the printout. returns the heading the robot ended
-//aimed along, for score() to hold through the push. maxSpeed (0-127) slows just this turn, e.g. to give the elevator time to rise before the push
-double Auton::facePoint(const char* label, double x, double y, float maxSpeed){
-    lemlib::Pose pose {chassis.getPose()};
-    double heading {lemlib::radToDeg(std::atan2(x - pose.x, y - pose.y))};
-    lemlib::TurnToPointParams params {aim};
-    params.maxSpeed = maxSpeed;
-    chassis.turnToPoint(x, y, timeoutMs, params, true);
-    watchTurn(label, heading);
-    //aim from where the turn ended, not where it started: after a backThrough the robot is still rolling as it turns,
-    //and the start's heading sent the push clockwise of the Match Load's goal
+//LemLib turnToPoint. returns the heading from where the turn ended to (x, y), for score() to hold through the push
+//(not the heading at the start: after a backThrough the robot is still rolling as it turns). maxSpeed (0-127) slows
+//just this turn, e.g. to give the elevator time to rise before the push
+double Auton::facePoint(double x, double y, int maxSpeed){
+    chassis.turnToPoint(x, y, timeoutMs, {.maxSpeed = maxSpeed, .minSpeed = 1, .earlyExitRange = 3}, false);
     lemlib::Pose end {chassis.getPose()};
     return lemlib::radToDeg(std::atan2(x - end.x, y - end.y));
 }
 
 //wait until the elevator is within toleranceRotations of `rotations`, without waiting for it to fully settle
-void Auton::waitElevatorNear(double rotations, double toleranceRotations, std::uint32_t timeoutMs){
+void Auton::waitElevatorNear(double rotations, double toleranceRotations, std::uint32_t waitMs){
     std::uint32_t start {pros::millis()};
-    while(std::abs(elevator.rotations() - rotations) > toleranceRotations && pros::millis() - start < timeoutMs){
+    while(std::abs(elevator.rotations() - rotations) > toleranceRotations && pros::millis() - start < waitMs){
         pros::delay(10);
     }
 }
 
-//set the Pin down on the goal (which already has `layer` Pins on it) and let go
-void Auton::release(int layer){
+//set the Pin down on the goal (which already has `layer` Pins on it) and let go. no lift back up afterwards: the
+//open claw slides off the Pin as the robot backs straight away, and intakeWhenClear() lowers it from here
+void Auton::release(int layer, double openExtraDeg){
     //it has been rising since the pickup, all through the push
+    std::uint32_t arriveStart {pros::millis()};
     waitElevatorNear(cfg::goalScoreRotations[layer], cfg::scoreDropToleranceRotations);
+    std::uint32_t arrivedMs {pros::millis() - arriveStart};
     double dropTo {cfg::goalScoreRotations[layer] - cfg::scoreDropRotations};
     elevator.requestHeight(dropTo);
+    std::uint32_t lowerStart {pros::millis()};
     waitElevatorNear(dropTo, cfg::scoreDropToleranceRotations);
-    endEffector.waitForClawHome();    //the preload home finishes on the way here
-    endEffector.openClaw();
+    std::printf("release layer %d: waited %u ms for the elevator to arrive, %u ms to lower to the drop height\n", layer,
+                static_cast<unsigned>(arrivedMs), static_cast<unsigned>(pros::millis() - lowerStart));    endEffector.waitForClawHome();    //the preload home finishes on the way here
+    endEffector.openClaw(openExtraDeg);    //wider than normal so the claw clears the Pin. TODO tune
     pros::delay(cfg::clawOpenMs);
-    //no lift back up: the open claw slides off the Pin as the robot backs straight away, and intakeWhenClear() lowers
-    //it from here
 }
 
-//tracking center to the goal's center once stalled against it: score() backs off alignBackoff so the claw is
-//over the goal, so the robot must have stopped that far past the claw-over spot
-constexpr double contactIn {cfg::clawReach - cfg::alignBackoff};
-
-//facing the goal (heading, from the turn before): once the elevator has the Pin near the scoring height, drive ahead
-//slowly holding heading until the drive motors stall against it, then reset the pose so the goal's center is (0, 0)
-//(the robot is contactIn behind it along the heading it ended on), back off to where the claw is over the goal, and
-//drop the Pin. everything after it is relative to the goal
-void Auton::score(int layer, double heading){
-    //push straight away, without waiting on the elevator: it keeps rising the whole way in, and release() waits for
-    //it to reach the scoring height before dropping. the push's gentle hold fixes what the turn's handover left
-    drivetrain.pushUntilStall(cfg::pushSpeed, cfg::pushTimeoutMs, heading);
+//the robot is already at the goal (the caller drove it in, nothing is pushed here): assume it is touching the goal along
+//`heading`, reset the pose so the goal's center is (0, 0), back off to where the claw is over the goal, and drop the
+//Pin. everything after it is relative to the goal. pushSpeed is no longer used
+void Auton::score(int layer, double heading, double extraBackoffIn, int pushSpeed, double openExtraDeg){
+    (void)heading;
+    (void)pushSpeed;
     lemlib::Pose stalled {chassis.getPose()};
-    double stalledAt {stalled.theta};
-    double rad {lemlib::degToRad(stalledAt)};
-    //where odometry thinks the goal is, from the pose it stalled at. after the first score this should be (0, 0): the
-    //gap is how far odometry drifted (or the robot stalled somewhere else) since the last reset
+    double rad {lemlib::degToRad(stalled.theta)};
+    //where odometry thinks the goal is. after the first score this should be (0, 0): the gap is how far odometry
+    //drifted (or the robot stalled somewhere else) since the last reset
     double foundX {stalled.x + contactIn * std::sin(rad)};
     double foundY {stalled.y + contactIn * std::cos(rad)};
-    std::printf("score %d: found the goal at (%.2f, %.2f), %.2f in from where odometry had it, elevator at %.2f of %.2f\n",
-                layer, foundX, foundY, std::hypot(foundX, foundY), elevator.rotations(),
-                cfg::goalScoreRotations[layer]);
-    chassis.setPose(-contactIn * std::sin(rad), -contactIn * std::cos(rad), stalledAt);
-    double backTo {contactIn + cfg::alignBackoff};
-    chassis.moveToPoint(-backTo * std::sin(rad), -backTo * std::cos(rad), timeoutMs, back, false);
-    release(layer);
-}
+    std::printf("score %d: goal found %.2f in from where odometry had it\n", layer, std::hypot(foundX, foundY));
+    scoreShiftX = -contactIn * std::sin(rad) - stalled.x;    //remember how far the origin moved, for going back to old points
+    scoreShiftY = -contactIn * std::cos(rad) - stalled.y;
+    chassis.setPose(-contactIn * std::sin(rad), -contactIn * std::cos(rad), stalled.theta);
+    double backTo {cfg::clawReach + cfg::scoreExtraBackoff + extraBackoffIn};    //extraBackoffIn: backs off this much more for one call
+    std::uint32_t backStart {pros::millis()};
+    //the back-up is short, so it exits within 1.5 in of the point at minSpeed instead of slowing to a stop (that tail was
+    //most of its 550 ms), then the motors are stopped. the stop carries about 1 in, so it lands on the point. was 40 and
+    //0.5 in: it stopped 0.5 in too far back and twisted off the straight line braking from that speed
+    chassis.moveToPoint(-backTo * std::sin(rad), -backTo * std::cos(rad), timeoutMs,
+                        {.forwards = false, .maxSpeed = 114, .minSpeed = 30, .earlyExitRange = 1.5}, false);
+    chassis.tank(0, 0, true);
+    std::uint32_t releaseStart {pros::millis()};
+    release(layer, openExtraDeg);
+    std::printf("score %d: back-up drive took %u ms, release took %u ms\n", layer, static_cast<unsigned>(releaseStart - backStart),
+                static_cast<unsigned>(pros::millis() - releaseStart));}
 
-//back straight out along the current heading, so the claw doesn't swing into the Pin it just dropped
-void Auton::backStraight(double inches, const lemlib::MoveToPointParams& params){
+//LemLib moveToPoint straight back along the current heading, so the claw doesn't swing into the Pin it just dropped.
+//(the spot depends on where the push stalled, so it can't be a fixed coordinate)
+//timeoutOverrideMs: give up after this long instead of pathTimeoutMs (0 = use pathTimeoutMs)
+void Auton::backStraight(double inches, const lemlib::MoveToPointParams& params, int timeoutOverrideMs){
     lemlib::Pose pose {chassis.getPose()};
     double rad {lemlib::degToRad(pose.theta)};
-    chassis.moveToPoint(pose.x - inches * std::sin(rad), pose.y - inches * std::cos(rad), timeoutMs, params, false);
+    chassis.moveToPoint(pose.x - inches * std::sin(rad), pose.y - inches * std::cos(rad),
+                        timeoutOverrideMs > 0 ? timeoutOverrideMs : timeoutMs, params, false);
 }
 
-//true from here until the robot has moved `inches` from where it is now
+//true once the robot has moved `inches` from where it is now
 std::function<bool()> Auton::movedFromHere(double inches){
     lemlib::Pose from {chassis.getPose()};
     return [this, from, inches]{
@@ -156,41 +127,66 @@ void Auton::intakeWhenClear(){
     });
 }
 
-//turn to face (x, y) (printed as `label`), close the claw on it from clawReach away, and lift it to liftTo (motor rotations).
+//raise the elevator to `rotations` once the robot has backed `inches` from where it is now (so the Pin is clear of the
+//matchloader first), in the background. the lift then runs while the robot finishes backing up and turns to the goal
+void Auton::liftWhenClear(double rotations, double inches){
+    pros::Task([this, rotations, clear = movedFromHere(inches)]{
+        std::uint32_t start {pros::millis()};
+        while(!clear() && pros::millis() - start < 3000){
+            pros::delay(10);
+        }
+        elevator.requestHeight(rotations);
+    });
+}
+
+//turn to face (x, y), drive in until the claw is over it, close the claw, and lift to liftTo (motor rotations).
 //clawFirst: let the claw close before the elevator moves (in the Loader, where lifting early can jam the claw);
 //otherwise the lift starts as the claw closes, so it rises while the robot turns and drives to the goal
-void Auton::pickUp(const char* label, double x, double y, double liftTo, bool clawFirst){
-    facePoint(label, x, y);
+void Auton::pickUp(double x, double y, double liftTo, bool clawFirst, double closeExtraDeg){
+    facePoint(x, y);
     //the claw has to be down at the intake height before it drives in. coming down from a high score can take longer
-    //than the back-up and turn, so stop and wait if it isn't there yet (near is enough, no need for the full settle)
+    //than the back-up and turn, so stop and wait if it isn't there yet (near is enough). the stop matters: the turn
+    //exits early and leaves the motors running
     if(std::abs(elevator.rotations() - config::elevator::intakeRotations) > config::elevator::resettleTolerance){
         chassis.tank(0, 0, true);
         waitElevatorNear(config::elevator::intakeRotations, config::elevator::resettleTolerance, 2000);
     }
-        //drive toward (x, y) until the claw is over it: full speed until pickupSlowIn short of that, then the rest at
-    //pickupSpeed. moveToPoint steers onto the line, so the turn before it only has to be close
+
+    //stop clawReach short of (x, y): full speed until pickupSlowIn before that, then the rest at pickupSpeed
     lemlib::Pose pose {chassis.getPose()};
-        double distance {std::hypot(x - pose.x, y - pose.y)};
-        double ux {(x - pose.x) / distance};
-        double uy {(y - pose.y) / distance};
-        double stopAt {distance - cfg::clawReach};
-        double slowAt {stopAt - cfg::pickupSlowIn};
-        if(slowAt > 0){
-            //minSpeed + earlyExitRange: hand over to the slow part within 1 in, without stopping
-            chassis.moveToPoint(pose.x + slowAt * ux, pose.y + slowAt * uy, timeoutMs,
-                                {.maxSpeed = 127, .minSpeed = cfg::pickupSpeed, .earlyExitRange = 1}, false);
+    double distance {std::hypot(x - pose.x, y - pose.y)};
+    double ux {(x - pose.x) / distance};
+    double uy {(y - pose.y) / distance};
+    double stopAt {distance - cfg::clawReach};
+    double slowAt {stopAt - cfg::pickupSlowIn};
+    if(slowAt > 0){
+        //hand over to the slow part within 1 in, without stopping
+        chassis.moveToPoint(pose.x + slowAt * ux, pose.y + slowAt * uy, timeoutMs,
+                            {.minSpeed = cfg::pickupSpeed, .earlyExitRange = 1}, false);
+    }
+    //the slow part is open loop at pickupSpeed, holding the heading toward the stack, until the claw is over it. not a
+    //moveToPoint with a maxSpeed: LemLib raises that cap to at least 60 once within 7.5 in of the target, so the robot
+    //crept in and then lunged at the stack and knocked it over
+    double heading {lemlib::radToDeg(std::atan2(ux, uy))};
+    double targetX {pose.x + stopAt * ux};
+    double targetY {pose.y + stopAt * uy};
+    std::uint32_t start {pros::millis()};
+    while(pros::millis() - start < static_cast<std::uint32_t>(timeoutMs)){
+        lemlib::Pose now {chassis.getPose()};
+        if((targetX - now.x) * ux + (targetY - now.y) * uy <= 0.2){
+            break;
         }
-        //hand over within 1 in instead of settling (friction can hold it just short for the 500 ms large exit), then stop
-        chassis.moveToPoint(pose.x + stopAt * ux, pose.y + stopAt * uy, timeoutMs,
-                            {.maxSpeed = cfg::pickupSpeed, .minSpeed = 1, .earlyExitRange = 1}, false);
-        chassis.tank(0, 0, true);
+        //theta is clockwise positive, so a positive error steers right: left side faster
+        double steer {std::clamp(1.5 * lemlib::angleError(heading, now.theta, false), -8.0, 8.0)};
+        chassis.tank(cfg::pickupSpeed + steer, cfg::pickupSpeed - steer, true);
+        pros::delay(10);
+    }
+    chassis.tank(0, 0, true);
+
     while(clawReopening){    //normally long done; closing first would get undone by its openClaw()
         pros::delay(10);
     }
-    lemlib::Pose closedAt {chassis.getPose()};
-    std::printf("pickup %s: claw closed with the robot at (%.2f, %.2f), heading %.1f deg\n", label, closedAt.x,
-                closedAt.y, closedAt.theta);
-    endEffector.closeClaw();
+    endEffector.closeClaw(closeExtraDeg);    //closeExtraDeg squeezes past the normal closed position
     if(clawFirst){
         pros::delay(cfg::clawMs);
         elevator.requestHeight(liftTo);
@@ -201,26 +197,57 @@ void Auton::pickUp(const char* label, double x, double y, double liftTo, bool cl
     pros::delay(cfg::clawMs);    //the claw closes before the robot drives off
 }
 
-//test: score the preload on the left red Goal (the Station Goal), then the cup+pin stacks on top of it.
-//starts holding the preload against the red Alliance Station wall. in the start frame the goal is at (18.30, 14.61),
-//the diagonal stack at (18.30, 38.16) and the standing stack at (41.85, 14.61); after the first score() the goal is
-//(0, 0), so the diagonal stack is at (0, 23.55) and the standing one at (23.55, 0)
-void Auton::preloadTest(){
+//drives (dx, dy) from the current pose, fast until slowIn inches from the end, then drops hard to slowSpeed (0-127)
+//open loop for the rest, holding the heading, and stops at the end point. not a moveToPoint with a maxSpeed for the end:
+//LemLib raises that cap to at least 60 within 7.5 in of the target
+void Auton::driveSlowEnd(double dx, double dy, double slowIn, int slowSpeed, int fastSpeed, int slowTimeoutMs){
+    lemlib::Pose pose {chassis.getPose()};
+    double distance {std::hypot(dx, dy)};
+    double ux {dx / distance};
+    double uy {dy / distance};
+    double slowAt {distance - slowIn};
+    //a raised elevator makes the robot sway, so the fast speed fades with the lift height (0 = down, 1 = top) and the
+    //heading hold gets gentler (the same fractions as the driver control and the old push)
+    double height {std::clamp(elevator.rotations() / config::elevator::maxMotorRotations, 0.0, 1.0)};
+    fastSpeed = static_cast<int>(fastSpeed * (1.0 - (1.0 - config::drivetrain::elevatorTopSpeedScale) * height));
+    double steerScale {1.0 - (1.0 - cfg::pushHeadingTopScale) * height};
+    if(slowAt > 0){
+        //hands over to the slow part within 1 in, without stopping
+        chassis.moveToPoint(pose.x + slowAt * ux, pose.y + slowAt * uy, timeoutMs,
+                            {.maxSpeed = static_cast<float>(fastSpeed), .minSpeed = static_cast<float>(slowSpeed), .earlyExitRange = 1}, false);
+    }
+    double heading {lemlib::radToDeg(std::atan2(ux, uy))};
+    double targetX {pose.x + dx};
+    double targetY {pose.y + dy};
+    std::uint32_t start {pros::millis()};
+    while(pros::millis() - start < static_cast<std::uint32_t>(slowTimeoutMs)){
+        lemlib::Pose now {chassis.getPose()};
+        //within 1 in of the end counts as there: against the goal the robot stalls short of the point and would wait out the timeout
+        if((targetX - now.x) * ux + (targetY - now.y) * uy <= 1.0){
+            break;
+        }
+        //theta is clockwise positive, so a positive error steers right: left side faster
+        double steer {std::clamp(1.5 * steerScale * lemlib::angleError(heading, now.theta, false), -8.0, 8.0)};
+        chassis.tank(slowSpeed + steer, slowSpeed - steer, true);
+        pros::delay(10);
+    }
+    chassis.tank(0, 0, true);
+}
+
+//score the preload on the left red Goal (the Station Goal), then the two cup+pin stacks and a Match Load on top of it.
+//starts holding the preload against the red Alliance Station wall. after the first score() the goal is (0, 0)
+void Auton::ogpreload(){
     chassis.setPose(0, 0, 0);
-    //clamp the preload and zero the claw as it sets off, then the pivot goes down
-    endEffector.clampPreload();
+    endEffector.clampPreload();    //clamps the preload and zeroes the claw as it sets off, then the pivot goes down
     elevator.requestHeight(cfg::goalScoreRotations[0]);
 
-    //out along the wall to the goal's column, face the goal, and push into it
-    chassis.moveToPoint(0, 15, timeoutMs, drive, false);
-    chassis.turnToHeading(90, timeoutMs, turn, true);
-    watchTurn("to the preload goal", 90);
+    //1. preload: out along the wall to the goal's column, face the goal, score
+    chassis.moveToPoint(0, 15, timeoutMs, {}, false);
+    chassis.turnToHeading(90, timeoutMs, turn, false);
     score(0, 90);
 
-    //back up along the wall to 8 in behind where it stalled, rolling straight into the turn toward the stack; the claw
-    //re-homes and reopens and the elevator lowers on the way
-    //the claw's zero is still shifted for the Pin: now it's empty and open, so it homes properly on the move, once the
-    //robot is clear of the Pin (closing any sooner could grab it off the goal), then opens again in the background
+    //the claw's zero is still shifted for the Pin: re-home it empty once clear of the Pin (closing any sooner could
+    //grab it off the goal), then open it again, all in the background while the robot backs up
     endEffector.rehomeClaw(movedFromHere(cfg::rehomeClearance));
     clawReopening = true;
     pros::Task([this]{
@@ -231,47 +258,75 @@ void Auton::preloadTest(){
     intakeWhenClear();
     backStraight(8 - cfg::alignBackoff, backThrough);    //score() already backed off alignBackoff
 
-    //pick up the diagonal stack (about 34 deg from there), then turn straight to the goal and score it on the preload
-    pickUp("to the diagonal stack", 1.715, 21.952, cfg::goalScoreRotations[1]);
-    score(1, facePoint("diagonal stack to the goal", 0, 0));
-
-    //it scored from the goal's +y side and the standing stack is on its +x side, so go around: back out to where the
-    //diagonal stack stood, which is on the 135 deg line through the standing stack and clear of both goals
-    //(the claw is still open from the score). straight back first: curving away right off the goal swung the claw into
-    //the Pin and knocked it over
+    //2. diagonal stack
+    pickUp(1.715, 21.952, cfg::goalScoreRotations[1]);
+    score(1, facePoint(0, 0));
     intakeWhenClear();
     backStraight(cfg::scoreClearIn, backThrough);
-    pickUp("to the standing stack", 22.25, -1.78, cfg::goalScoreRotations[2]);
-    //slowed so the elevator has time to rise to layer 2 before the push. TODO tune the 70
-    score(2, facePoint("standing stack to the goal", 0, 0, 70));
 
+    //3. standing stack. the turn to the goal is slowed so the elevator reaches layer 2 before the push. TODO tune the 70
+    pickUp(22.25, -1.78, cfg::goalScoreRotations[2]);
+    score(2, facePoint(0, 0, 70));
     intakeWhenClear();
     backStraight(9, backThrough);
-    pickUp("to the Loader", 31.525, -20.855, config::elevator::intakeRotations + cfg::loadLiftRotations, true);
 
-    //back straight out of the Loader, then lift to the scoring height while turning and driving to the goal, and score
-    //on top of the three Pins. TODO tune the 10 in
+    //4. Match Load: grab it, back straight out of the Loader (TODO tune the 10 in), lift while turning to the goal
+    pickUp(31.525, -20.855, config::elevator::intakeRotations + cfg::loadLiftRotations, true);
     backStraight(10, backThrough);
     elevator.requestHeight(cfg::goalScoreRotations[3]);
-    score(3, facePoint("Match Load to the goal", 0, 0));
+    score(3, facePoint(0, 0));
     backStraight(cfg::scoreClearIn, back);
 }
 
-void Auton::matchLeft(){
-    chassis.setPose(0, 0, 0);
-    //TODO
-}
+//TODO: empty until the match routines are written
+void Auton::matchLeft(){}
 
-void Auton::matchRight(){
-    chassis.setPose(0, 0, 0);
-    //TODO
-}
+void Auton::matchRight(){}
 
 void Auton::none(){}
 
+//shows the pose on the brain screen for 120 s, so it can be read while the routine runs and after the robot stops. the
+//last line is the heading furthest from 0 it reached, which shows how far a turn overshot
+void Auton::showPose(){
+    pros::Task([this]{
+        std::uint32_t end {pros::millis() + 120000};
+        double peak {0};
+        while(pros::millis() < end){
+            lemlib::Pose p {chassis.getPose()};
+            if(std::abs(p.theta) > std::abs(peak)){
+                peak = p.theta;
+            }
+            pros::screen::print(pros::E_TEXT_LARGE, 2, "x: %7.2f in", p.x);
+            pros::screen::print(pros::E_TEXT_LARGE, 4, "y: %7.2f in", p.y);
+            pros::screen::print(pros::E_TEXT_LARGE, 6, "heading: %7.2f", p.theta);
+            pros::screen::print(pros::E_TEXT_LARGE, 8, "peak: %7.2f", peak);
+            pros::delay(10);
+        }
+    });
+}
+
+//test: drive 48 in straight forward from the start pose, to check the odometry distance
+void Auton::drive48(){
+    chassis.setPose(0, 0, 0);
+    showPose();
+    chassis.moveToPoint(0, 48, 5000, {.maxSpeed = 80}, false);
+    std::printf("drive48 ended at x %.2f y %.2f heading %.2f\n", chassis.getPose().x, chassis.getPose().y, chassis.getPose().theta);
+}
+
+//test: turn 90 deg in place from the start pose, to tune the turning. the screen shows the final and peak heading
+void Auton::turn90(){
+    chassis.setPose(0, 0, 0);
+    showPose();
+    chassis.turnToHeading(90, 4000, {}, false);
+    std::printf("turn90 ended at heading %.2f\n", chassis.getPose().theta);
+}
+
 //the first one is the default if nobody touches the selector
-const std::array<Auton::Routine, 4> Auton::routines{{
-    {"Preload Test", &Auton::preloadTest},
+const std::array<Auton::Routine, 7> Auton::routines{{
+    {"Skills", &Auton::skills},
+    {"Turn 90", &Auton::turn90},
+    {"Drive 48", &Auton::drive48},
+    {"OG Preload", &Auton::ogpreload},
     {"Match Left", &Auton::matchLeft},
     {"Match Right", &Auton::matchRight},
     {"None", &Auton::none},
@@ -292,6 +347,10 @@ void Auton::select(){
         }
         pros::delay(50);
     }
+}
+
+bool Auton::homesElevatorWhileMoving() const{
+    return routines[selected].run == &Auton::skills;
 }
 
 void Auton::run(){

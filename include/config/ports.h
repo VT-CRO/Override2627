@@ -31,5 +31,6 @@ namespace config::ports{
     //motor gear ratios 
     constexpr pros::v5::MotorGears drivetrainGearRatio {pros::v5::MotorGears::green};
     constexpr pros::v5::MotorGears elevatorGearRatio {pros::v5::MotorGears::green};
-    constexpr pros::v5::MotorGears endEffectorGearRatio {pros::v5::MotorGears::green}; //green, not red: red made every move go twice as far
+    constexpr pros::v5::MotorGears endEffectorGearRatio {pros::v5::MotorGears::green}; //claw motor. green, not red: red made every move go twice as far
+    constexpr pros::v5::MotorGears pivotGearRatio {pros::v5::MotorGears::red}; //the two pivot motors were swapped to red cartridges
 }

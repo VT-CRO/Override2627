@@ -11,6 +11,13 @@ public:
     //motors only run once the robot is enabled. blocks until the home finishes
     void homeBlocking();
 
+    //starts the home without waiting: update() does the homing from now on, so whatever calls update() (the autonomous
+    //elevator task) homes it while the robot does other things. does nothing if it is already homed
+    void startHome();
+
+    //true once the home has zeroed the encoders
+    bool isHomed() const;
+
     //marks the zero as unknown so the next homeBlocking() re-homes
     void forgetHome();
 

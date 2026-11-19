@@ -12,7 +12,7 @@ namespace config::elevator{
 
     //intake position: motor rotations above the stowed position where the elevator sits to intake.
     //these are plain motor rotations, not measured heights (the DR4B's height per rotation is not constant)
-    constexpr double intakeRotations {1.3};
+    constexpr double intakeRotations {1.35};    //was 1.3, then 0.2 higher (1.5), then 0.15 lower
     //gravity feedforward in millivolts: the voltage that just holds the lift still, at the bottom and at the top, blended
     //by position in between. measure it on the robot (hold it at each end and raise until it stops sagging). 0 = off,
     //the integral term then has to carry the load. a DR4B is normally heaviest to hold low, so expect Low > High. TODO tune
@@ -28,7 +28,7 @@ namespace config::elevator{
     constexpr int returnTimeoutMs {4000};
     //the home (X, or autonomous) stops and zeroes on its own, checked only after homeGraceMs of pushing.
     //if it never reaches the zero tension it zeroes anyway after manualHomeTimeoutMs. TODO tune
-    constexpr uint32_t homeGraceMs {300};
+    constexpr uint32_t homeGraceMs {300};    //was 300, then 150, back to 300: 150 zeroed the home early and every height came out too low
     //the chain keeps tightening, so there is no hard stop: the home zeroes at a fixed tension instead.
     //push down at homeMv (millivolts, low = gentle on the chain) until the highest motor current stays above
     //homeStallCurrentMa for the confirm time. TODO tune the current from the "home ... mA" lines printed to the terminal
@@ -36,7 +36,7 @@ namespace config::elevator{
     //measured at 3.5 V: free spin ~73 rpm at <60 mA, current plateaus ~1430 mA with velocity 0.0 on the stop
     constexpr int32_t homeStallCurrentMa {1152};
     constexpr double homeStallRpm {34.3};
-    constexpr uint32_t homeStallConfirmMs {150};
+    constexpr uint32_t homeStallConfirmMs {300};    //was 150, back to 300 with the grace time
     constexpr uint32_t manualHomeTimeoutMs {8000};
 
     //elevator positioning

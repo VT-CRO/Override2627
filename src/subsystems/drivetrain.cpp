@@ -52,15 +52,17 @@ Drivetrain::Drivetrain(pros::v5::Controller& master, const Elevator& elevator)
       chassis(
           //read documentation to understand each param. TODO tune to real bot
           lemlib::Drivetrain(&leftMotors, &rightMotors, 10, lemlib::Omniwheel::NEW_325, 200, 2),
-          //lateral. TODO tune
+          //lateral. TODO tune. D was 3 (LemLib's template value) and the robot shook laterally on the skills back-up, so
+          //raised to 10 to damp it. 15 was tried and put back: the turn before the move was tweaking. if it still shakes
+          //raise D more, if it gets sluggish or creeps up on the target lower it
           lemlib::ControllerSettings(
               10,  //P
               0,  //I
-              3,  //D
+              10,  //D. 70 fixed the full speed 48 in overshoot but stalled short moves (the score back-up) outside the exit range, so they waited out the timeout. 40, 65, 100 were also tried (100 curved the robot 5.5 deg at the end of the 48 in test): the 48 in test overshot, braked hard and came back, so the D is raised to brake earlier
               3,
               .5,  //exits once within .5 in of the target for 100 ms
               100,
-              1,   //or within 1 in for 500 ms
+              1,   //or within 1 in for 500 ms. .5 left slow moves stopping short and waiting out the whole timeout
               500,
               20  //slew rate, max output change per 10 ms
           ),
@@ -71,11 +73,11 @@ Drivetrain::Drivetrain(pros::v5::Controller& master, const Elevator& elevator)
           //integral has to creep through) is 1.4 deg. if turnBy shows overshoot, raise D a little
           lemlib::ControllerSettings(
               11.6,  //P
-              0.068,  //I, only within the windup range below, to push through friction
-              115,  //D, 15% over the critically damped 100: with 100 the 90 deg test still overshot 0.5-5 deg (sensor lag)
+              0,  //I off. was 0.068, then 0.03, and turns still jittered at the end. P alone gets within the 1.4 deg friction deadband, inside the 2 deg exit
+              115,  //D. 98 made the skills turns (steps 3 and 5) hunt and wait out their timeouts, so it is back to 115. in the 90 deg test: 90 overshot the 90 deg test by 5.6 deg (peak 95.64, ended 90.82, barely jittered). 105 peaked 90.08, ended 88.72 and jittered more. 115 peaked 89.54, ended 88.73 and jittered
               6,  //integral only counts within this many degrees of the target
-              1,  //exits once within 1 deg for 100 ms
-              100,
+              2,  //exits once within 2 deg for 50 ms (was 1 deg, and every turn twitched around the target while it settled; the hold was 100 ms)
+              50,
               3,  //or within 3 deg for 500 ms
               500,
               0  //slew off: LemLib's slew also limits braking, and at 15 the 90 deg test overshot 15-21 deg
@@ -91,20 +93,8 @@ void Drivetrain::init(){
 }
 
 void Drivetrain::drive(){
-    double leftY {master.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y)};
-    double rightX {master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X)};
-
-    if(chassis.isInMotion()){
-        bool stickMoved {std::abs(leftY) >= 10 || std::abs(rightX) >= 10};
-        if(!stickMoved){
-            //the auto drive owns the motors: restart the slew from 0 so the driver doesn't get a jump when it ends
-            throttleVoltage = 0;
-            turnVoltage = 0;
-            lastDriveTime = 0;
-            return;
-        }
-        chassis.cancelMotion();
-    }
+    int leftY {master.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y)};
+    int rightX {master.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X)};
 
     //anti tip: the higher the elevator, the gentler the limits (0 = down, 1 = top)
     double height {std::clamp(elevator.rotations() / config::elevator::maxMotorRotations, 0.0, 1.0)};

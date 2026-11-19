@@ -135,8 +135,7 @@ void Elevator::driveToTarget(double target){
         integral += error * 0.02;
         integral = std::clamp(integral, -cfg::integralMaxMv / cfg::ki,
                               cfg::integralMaxMv / cfg::ki);
-        output += cfg::ki * integral;
-    }
+        output += cfg::ki * integral;    }
     else{
         integral = 0;
         //far from the target: never so small it can't beat friction
@@ -162,6 +161,19 @@ void Elevator::init(){
 
 void Elevator::forgetHome(){
     homed = false;
+}
+
+void Elevator::startHome(){
+    if(homed){
+        return;
+    }
+    mode = Mode::ManualHoming;
+    level = 0;
+    manualHomeStartTime = 0;
+}
+
+bool Elevator::isHomed() const{
+    return homed;
 }
 
 //motors only run once the robot is enabled, so this is called from autonomous or the X home, not from init().
@@ -364,8 +376,6 @@ void Elevator::handleInput(){
     bool bPressed {master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_B) != 0};
     bool yPressed {master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y) != 0};
     bool aPressed {master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_A) != 0};
-    bool upPressed {master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_UP) != 0};
-    bool downPressed {master.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_DOWN) != 0};
 
     //L1 = manual up, L2 = manual down, while held
     bool manualUpHeld {master.get_digital(pros::E_CONTROLLER_DIGITAL_L1) != 0};
@@ -408,15 +418,7 @@ void Elevator::handleInput(){
     else if(aPressed){
         goToLevel(3 * cfg::stepsPerSection);
     }
-    //up and down step one level at a time
-    else if(upPressed){
-        //from stowed, level is 0 so this goes to level 1
-        goToLevel(level + 1);
-    }
-    else if(downPressed && (mode == Mode::Positioning || mode == Mode::ManualHold)){
-        //stepping down to level 0 stows and re-homes through goToLevel
-        goToLevel(level - 1);
-    }
+    //UP / DOWN no longer step the elevator, they move the end effector pivot (EndEffector::test)
 }
 
 //safe to call every loop: does nothing if it is already on its way. level 0 so Up/Down taps step from the bottom
