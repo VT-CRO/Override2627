@@ -185,8 +185,13 @@ void Drivetrain::turnBy(double degrees){
     });
 }
 
-void Drivetrain::pushUntilStall(int power, std::uint32_t timeoutMs, double heading){
+double Drivetrain::speedRpm(){
+    return std::max(std::abs(leftMotors.get_actual_velocity()), std::abs(rightMotors.get_actual_velocity()));
+}
+
+void Drivetrain::pushUntilStall(int power, std::uint32_t timeoutMs, double heading, double maxInches){
     chassis.cancelAllMotions();
+    lemlib::Pose startPose {chassis.getPose()};
     //hold heading with its own gentle PD: LemLib's moveToPoint steered with the turn gains, which at this low power
     //swung the robot side to side. the correction is capped at `power` so neither side ever drives backward
     lemlib::PID headingPid(config::auton::pushHeadingKp, 0, config::auton::pushHeadingKd);
@@ -202,8 +207,10 @@ void Drivetrain::pushUntilStall(int power, std::uint32_t timeoutMs, double headi
         rightMotors.move(static_cast<int>(power - turn));
         pros::delay(10);
         std::uint32_t now {pros::millis()};
-        double speed {std::max(std::abs(leftMotors.get_actual_velocity()), std::abs(rightMotors.get_actual_velocity()))};
-        if(now - start < config::auton::pushGraceMs || speed >= config::auton::pushStallRpm){
+        if(maxInches > 0 && std::hypot(chassis.getPose().x - startPose.x, chassis.getPose().y - startPose.y) >= maxInches){
+            break;
+        }
+        if(now - start < config::auton::pushGraceMs || speedRpm() >= config::auton::pushStallRpm){
             movingAt = now;
         }
         else if(now - movingAt >= config::auton::pushStallConfirmMs){

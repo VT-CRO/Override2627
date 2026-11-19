@@ -31,6 +31,10 @@ namespace config::auton{
     //higher layers swayed the robot into oscillating. TODO tune
     constexpr double pushHeadingTopScale {0.3};
     constexpr double alignBackoff {3.25};
+    //tracking center to the goal's center once stalled against it on a straight approach (0, 90, 180 deg), where the
+    //robot reaches closer than on a diagonal one (clawReach - alignBackoff = 9.4, tuned at 45 deg). 8.4 is an estimate
+    //(about 1 in closer, from the robot backing out 1 in short at -90). TODO measure/tune
+    constexpr double contactStraightIn {8.4};
     //score() backs off this much (inches) further than alignBackoff before it drops the Pin. TODO tune
     constexpr double scoreExtraBackoff {0.5};    //was 0.35, +0.15
     //how far (motor rotations) the elevator lowers from the scoring height before the claw opens. TODO tune
@@ -60,4 +64,28 @@ namespace config::auton{
     //how far (inches) the robot backs straight away from a goal after scoring before it turns, so the claw clears the
     //Pin. TODO tune
     constexpr double scoreClearIn {8.0};
+    //Red A goal to the loader row, along the field's y axis: goal y 46.66 minus loader y 11.44 (docs/field-coordinates.md).
+    //in the goal frame score() sets, that is the local x the robot must reach to be level with the loader center. every
+    //trip to the loader uses it, so tune this one number if the claw is off the loader center. TODO tune
+    //on the 5th score of each goal (layer 4) the wrist rides this many degrees above horizontal while the elevator climbs,
+    //because the elevator was not at height when the robot reached the goal; it comes back down to horizontal once the
+    //elevator is within wristDownNearRotations of the height. up is positive. TODO tune
+    constexpr double wristUpDeg {70};
+    constexpr double wristDownNearRotations {0.5};
+    //how far (inches) every loader trip is shifted along the wall toward field +y, off the loader's exact center: dead center
+    //lets the claw jam on the loader's two side braces, with the claw a bit off center one jaw goes outside a brace and the
+    //other stays inside, which picks the Pin up consistently. 1 cm. TODO tune
+    constexpr double loaderShiftIn {0.394};
+    constexpr double loaderLineFromGoalIn {35.22 - loaderShiftIn};    //local +x is field south, so +y field is minus here
+    //how far (inches) the robot drives into the loader. it stalls on the loader, this just has to exceed the real travel
+    constexpr double loaderDriveIn {11.5 - 0.394};    //was 11.5, 1 cm less so the claw goes in a bit less
+    //Red B's center in the frame score() sets on Red A (goal at (0, 0), +x field south, +y field east): Red B (46.66, 23.11)
+    //minus Red A (23.11, 46.66) = 23.55 east, 23.55 south (docs/field-coordinates.md)
+    constexpr double redBFromRedAX {23.55};
+    constexpr double redBFromRedAY {23.55};
+    //the loader trip from Red B, in the frame score() sets on Red B (goal at (0, 0), +x field south, +y field east).
+    //row: Red B y 23.11 minus loader y 11.44 = 11.67 south of the goal. docs/field-coordinates.md
+    constexpr double redBLoaderRowX {11.67 - loaderShiftIn};
+    //Red B frame back-out point: the same 23.11 in from the wall as the Red A trips (46.66 - 23.11 = 23.55 west of the goal)
+    constexpr double redBLoaderBackY {-23.55};
 }

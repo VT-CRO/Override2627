@@ -41,8 +41,9 @@ private:
     void backStraight(double inches, const lemlib::MoveToPointParams& params, int timeoutOverrideMs = 0);
     std::function<bool()> movedFromHere(double inches);
     void intakeWhenClear();
-    void liftWhenClear(double rotations, double inches);
+    void liftWhenClear(double rotations, double inches, bool wristUp = false);
     void driveSlowEnd(double dx, double dy, double slowIn, int slowSpeed, int fastSpeed, int slowTimeoutMs);
+    void driveToGoal(double goalX, double goalY);
     void pickUp(double x, double y, double liftTo, bool clawFirst = false, double closeExtraDeg = 0);
     void skills();
     void showPose();

@@ -20,7 +20,11 @@ public:
 
     //drives ahead at power (0-127), steering to hold heading (deg), until both sides' motors stall (see
     //config::auton::pushStallRpm) or timeoutMs, then brakes. blocks
-    void pushUntilStall(int power, std::uint32_t timeoutMs, double heading);
+    //maxInches (0 = none): also stops once the robot has moved this far from where the push started
+    void pushUntilStall(int power, std::uint32_t timeoutMs, double heading, double maxInches = 0);
+
+    //the faster side's speed in rpm (absolute)
+    double speedRpm();
 
     //measures the turning model and prints angularController gains (see tune/drivetrain_tune.cpp). call every loop, it only runs on RIGHT held alone
     void rotationSysId();

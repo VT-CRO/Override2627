@@ -2,6 +2,7 @@
 #include "config/auton.h"
 #include "config/drivetrain.h"
 #include "config/elevator.h"
+#include "config/endeffector.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -30,7 +31,15 @@ constexpr int timeoutMs {cfg::pathTimeoutMs};
 
 //tracking center to the goal's center once stalled against it: score() backs off alignBackoff so the claw is
 //over the goal, so the robot must have stopped that far past the claw-over spot
-constexpr double contactIn {cfg::clawReach - cfg::alignBackoff};
+//(this is the value at 45 deg, where it was tuned)
+constexpr double contactDiagonalIn {cfg::clawReach - cfg::alignBackoff};
+
+//the same distance at the stalled heading: the robot reaches closer on a straight approach (0, 90, 180) than on a
+//diagonal one, so it goes linearly from contactStraightIn at a straight heading to contactDiagonalIn at 45 deg off
+double contactAt(double headingDeg){
+    double offStraight {std::fabs(std::remainder(headingDeg, 90.0))};    //0 to 45
+    return cfg::contactStraightIn + (contactDiagonalIn - cfg::contactStraightIn) * offStraight / 45.0;
+}
 }
 
 //LemLib turnToPoint. returns the heading from where the turn ended to (x, y), for score() to hold through the push
@@ -77,13 +86,17 @@ void Auton::score(int layer, double heading, double extraBackoffIn, int pushSpee
     double rad {lemlib::degToRad(stalled.theta)};
     //where odometry thinks the goal is. after the first score this should be (0, 0): the gap is how far odometry
     //drifted (or the robot stalled somewhere else) since the last reset
+    double contactIn {contactAt(stalled.theta)};
     double foundX {stalled.x + contactIn * std::sin(rad)};
     double foundY {stalled.y + contactIn * std::cos(rad)};
-    std::printf("score %d: goal found %.2f in from where odometry had it\n", layer, std::hypot(foundX, foundY));
+    std::printf("score %d: goal found %.2f in from where odometry had it (heading %.1f, contact %.2f in)\n", layer,
+                std::hypot(foundX, foundY), stalled.theta, contactIn);
     scoreShiftX = -contactIn * std::sin(rad) - stalled.x;    //remember how far the origin moved, for going back to old points
     scoreShiftY = -contactIn * std::cos(rad) - stalled.y;
     chassis.setPose(-contactIn * std::sin(rad), -contactIn * std::cos(rad), stalled.theta);
-    double backTo {cfg::clawReach + cfg::scoreExtraBackoff + extraBackoffIn};    //extraBackoffIn: backs off this much more for one call
+    //extraBackoffIn: backs off this much more for one call. the contact difference keeps the drop the same distance from
+    //where the robot stalled as when contact was always the diagonal value (the drop was tuned that way)
+    double backTo {cfg::clawReach + cfg::scoreExtraBackoff + extraBackoffIn + (contactIn - contactDiagonalIn)};
     std::uint32_t backStart {pros::millis()};
     //the back-up is short, so it exits within 1.5 in of the point at minSpeed instead of slowing to a stop (that tail was
     //most of its 550 ms), then the motors are stopped. the stop carries about 1 in, so it lands on the point. was 40 and
@@ -129,13 +142,23 @@ void Auton::intakeWhenClear(){
 
 //raise the elevator to `rotations` once the robot has backed `inches` from where it is now (so the Pin is clear of the
 //matchloader first), in the background. the lift then runs while the robot finishes backing up and turns to the goal
-void Auton::liftWhenClear(double rotations, double inches){
-    pros::Task([this, rotations, clear = movedFromHere(inches)]{
+//wristUp: also raises the wrist wristUpDeg above horizontal while the elevator climbs, and lowers it back to horizontal once
+//the elevator is within wristDownNearRotations of the height (the top layers are slow to arrive)
+void Auton::liftWhenClear(double rotations, double inches, bool wristUp){
+    pros::Task([this, rotations, wristUp, clear = movedFromHere(inches)]{
         std::uint32_t start {pros::millis()};
         while(!clear() && pros::millis() - start < 3000){
             pros::delay(10);
         }
         elevator.requestHeight(rotations);
+        if(wristUp){
+            endEffector.pivotTo(config::endeffector::pivotHorizontalDeg + cfg::wristUpDeg);
+            start = pros::millis();
+            while(std::abs(elevator.rotations() - rotations) > cfg::wristDownNearRotations && pros::millis() - start < 4000){
+                pros::delay(10);
+            }
+            endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);
+        }
     });
 }
 
@@ -197,6 +220,18 @@ void Auton::pickUp(double x, double y, double liftTo, bool clawFirst, double clo
     pros::delay(cfg::clawMs);    //the claw closes before the robot drives off
 }
 
+//turns to face a goal's center (x, y in the current frame) and drives to where the claw touches it, from wherever the
+//robot is, so the aim and the run come from the pose instead of a fixed vector. the slow end is the same as the other goal runs
+void Auton::driveToGoal(double goalX, double goalY){
+    double heading {facePoint(goalX, goalY, 103)};
+    lemlib::Pose pose {chassis.getPose()};
+    double dx {goalX - pose.x};
+    double dy {goalY - pose.y};
+    double distance {std::hypot(dx, dy)};
+    double run {distance - contactAt(heading)};
+    driveSlowEnd(dx / distance * run, dy / distance * run, 4, 29, 45, 500);
+}
+
 //drives (dx, dy) from the current pose, fast until slowIn inches from the end, then drops hard to slowSpeed (0-127)
 //open loop for the rest, holding the heading, and stops at the end point. not a moveToPoint with a maxSpeed for the end:
 //LemLib raises that cap to at least 60 within 7.5 in of the target
@@ -220,10 +255,19 @@ void Auton::driveSlowEnd(double dx, double dy, double slowIn, int slowSpeed, int
     double targetX {pose.x + dx};
     double targetY {pose.y + dy};
     std::uint32_t start {pros::millis()};
+    std::uint32_t movingAt {start};
     while(pros::millis() - start < static_cast<std::uint32_t>(slowTimeoutMs)){
         lemlib::Pose now {chassis.getPose()};
         //within 1 in of the end counts as there: against the goal the robot stalls short of the point and would wait out the timeout
         if((targetX - now.x) * ux + (targetY - now.y) * uy <= 1.0){
+            break;
+        }
+        //stalled against the goal (same test as pushUntilStall): stop now instead of waiting out the timeout
+        std::uint32_t t {pros::millis()};
+        if(t - start < cfg::pushGraceMs || drivetrain.speedRpm() >= cfg::pushStallRpm){
+            movingAt = t;
+        }
+        else if(t - movingAt >= cfg::pushStallConfirmMs){
             break;
         }
         //theta is clockwise positive, so a positive error steers right: left side faster

@@ -7,6 +7,8 @@ namespace cfg = config::auton;
 
 namespace {
 constexpr int timeoutMs {cfg::pathTimeoutMs};
+//loader row to goal run: from the loader line to where the robot stalls on the goal (these runs are straight, -90)
+constexpr double goalRunIn {cfg::loaderLineFromGoalIn - cfg::contactStraightIn};
 }
 
 //skills run. local coordinates: the start is (0, 0) facing heading 0, +y is forward, +x is right.
@@ -23,6 +25,12 @@ void Auton::skills(){
         std::printf("lap %s %u ms\n", name, static_cast<unsigned>(now - lapStart));
         lapStart = now;
         ++lapRow;
+    }};
+    //where each loader drive ended, in the current goal frame: the loader stalls the robot at the same spot every time, so a
+    //different y here means the pose it started the drive from was off
+    auto loaderPose {[&](const char* when){
+        lemlib::Pose p {chassis.getPose()};
+        std::printf("loader %s: pose (%.2f, %.2f) heading %.1f\n", when, p.x, p.y, p.theta);
     }};
     endEffector.clampPreload();
     elevator.requestHeight(cfg::goalScoreRotations[0]);
@@ -50,7 +58,7 @@ void Auton::skills(){
     lap("s3back");
     elevator.requestHeight(1.36);    //the height for the pin 2 pickup, was 1.36, then 0.2 higher (1.56), then 0.15 lower (1.41), 0.1 lower (1.31), 0.15 higher (1.46), now 0.1 lower
     chassis.tank(0, 0, true);
-    endEffector.openClaw(3);    //was -2, 5 deg wider
+    endEffector.openClaw(20);    //was -2, 5 deg wider
     pros::delay(150);    //let the robot stop before turning
     chassis.turnToHeading(65, 4000, {.maxSpeed = 73}, false);
     std::printf("step 3 turn ended at heading %.2f (asked for 65)\n", chassis.getPose().theta);
@@ -72,130 +80,141 @@ void Auton::skills(){
     score(1, -69, 0.7);
     lap("s5score");
 
+    
     //======== PIN 3: the matchloader, scored on goal 2 at layer 2 ========
     //step 6: raise the wrist to clear the Pin, back up away from the goal (lowering the elevator), turn to 177
     endEffector.pivotTo(config::endeffector::pivotPreloadDeg + 70);    //same wrist raise as after the preload
     intakeWhenClear();
-    chassis.moveToPoint(chassis.getPose().x+25, chassis.getPose().y+2, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);
+    chassis.moveToPoint(cfg::loaderLineFromGoalIn, 0, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);    //the loader row in the goal frame, same point every trip
     endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
-    chassis.turnToHeading(175, timeoutMs, {.maxSpeed = 63}, false);
+    chassis.turnToHeading(180, timeoutMs, {.maxSpeed = 63}, false);
 
     //step 7: wrist back to horizontal, open the claw for the matchloader (50 deg wider than it was)
     endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);
-    endEffector.openClaw(7);
+    endEffector.openClaw(-8);
     pros::delay(200);    //let the claw finish opening
 
     //step 8: drive 9 in into the matchloader, clamp, back up 7 in, turn to -88
-    chassis.moveToPoint(chassis.getPose().x, chassis.getPose().y - 9, timeoutMs, {.maxSpeed = 36}, false);
+    drivetrain.pushUntilStall(36, 2500, 180, cfg::loaderDriveIn);    //stops on the loader (or at the depth cap), no waiting out a timeout
+    loaderPose("stalled");
     endEffector.closeClaw(30);
     pros::delay(300);    //let the claw finish closing
     liftWhenClear(cfg::goalScoreRotations[2], 1);    //the elevator starts rising once the Pin is 1 in clear of the matchloader
-    backStraight(7, {.forwards = false, .maxSpeed = 114, .minSpeed = 20, .earlyExitRange = 1}, timeoutMs);
-    chassis.turnToHeading(-92, timeoutMs, {.maxSpeed = 114}, false);
+    backStraight(8, {.forwards = false, .maxSpeed = 114, .minSpeed = 20, .earlyExitRange = 1}, timeoutMs);
+    chassis.turnToHeading(-90, timeoutMs, {.maxSpeed = 114}, false);
 
-    //step 9: drive 29 in to the goal (elevator rising) at speed 55, then drop hard to speed 35 for the last 4 in, score
+    //step 9: drive from the loader row to the goal (elevator rising) at speed 50, then drop hard to speed 32 for the last 4 in, score
     elevator.requestHeight(cfg::goalScoreRotations[2]);
-    lemlib::Pose beforeStep9 {chassis.getPose()};
-    driveSlowEnd(-29, 0, 4, 32, 50, 500);
-    score(2, -92, 0.15);
+    driveSlowEnd(-goalRunIn, 0, 4, 32, 50, 500);
+    score(2, -90, 0.15);
 
     //======== PIN 4: the matchloader again, scored on goal 2 at layer 3 ========
-    //step 10: raise the wrist to clear the Pin, back up to where step 9 started plus 1 in (lowering the elevator), turn to 177
+    //step 10: raise the wrist to clear the Pin, back up to the loader row (lowering the elevator), turn to the loader
     endEffector.pivotTo(config::endeffector::pivotPreloadDeg + 70);
     intakeWhenClear();
-    chassis.moveToPoint(beforeStep9.x + scoreShiftX + 1, beforeStep9.y + scoreShiftY, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);
+    chassis.moveToPoint(cfg::loaderLineFromGoalIn, 0, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);
     endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
-    chassis.turnToHeading(177, timeoutMs, {.maxSpeed = 63}, false);
+    chassis.turnToHeading(180, timeoutMs, {.maxSpeed = 63}, false);
 
-    //step 11: wrist back to horizontal, open the claw 50 deg wider, drive 11.55 in into the matchloader, clamp, back up 7 in
+    //step 11: wrist back to horizontal, open the claw 50 deg wider, drive into the matchloader, clamp, back up 8 in
     endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);
-    endEffector.openClaw(7);
+    endEffector.openClaw(-8);
     pros::delay(200);
-    chassis.moveToPoint(chassis.getPose().x, chassis.getPose().y - 11.55, timeoutMs, {.maxSpeed = 36}, false);
+    drivetrain.pushUntilStall(36, 2500, 180, cfg::loaderDriveIn);    //stops on the loader (or at the depth cap), no waiting out a timeout
+    loaderPose("stalled");
     endEffector.closeClaw(30);
     pros::delay(300);
     liftWhenClear(cfg::goalScoreRotations[3], 1);
     backStraight(8, {.forwards = false, .maxSpeed = 114, .minSpeed = 20, .earlyExitRange = 1}, timeoutMs);
 
-    //step 12: turn to -90, drive 29.5 in to the goal (elevator rising) at speed 55, then drop hard to speed 35 for the last 4 in, score
+    //step 12: turn to -90, drive to the goal (elevator rising), then slow for the last 4 in, score
     elevator.requestHeight(cfg::goalScoreRotations[3]);
-    chassis.turnToHeading(-92, timeoutMs, {.maxSpeed = 114}, false);
-    lemlib::Pose beforeStep12 {chassis.getPose()};
-    driveSlowEnd(-29.5, 0, 4, 32, 50, 500);
-    score(3, -92, 0.15);
+    chassis.turnToHeading(-90, timeoutMs, {.maxSpeed = 114}, false);
+    driveSlowEnd(-goalRunIn, 0, 4, 32, 50, 500);
+    score(3, -90, 0.15);
 
     //======== PIN 5: the matchloader again, scored on goal 2 at layer 4 ========
-    //step 13: raise the wrist to clear the Pin, back up to where step 12 started minus 1.25 in (lowering the elevator), turn to 173.5
+    //step 13: raise the wrist to clear the Pin, back up to the loader row (lowering the elevator), turn to the loader
     endEffector.pivotTo(config::endeffector::pivotPreloadDeg + 70);
     intakeWhenClear();
-    chassis.moveToPoint(beforeStep12.x + scoreShiftX - 1.25, beforeStep12.y + scoreShiftY, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);
+    chassis.moveToPoint(cfg::loaderLineFromGoalIn, 0, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);
     endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
-    chassis.turnToHeading(175, timeoutMs, {.maxSpeed = 63}, false);    //3.5 deg left of 177
+    chassis.turnToHeading(180, timeoutMs, {.maxSpeed = 63}, false);
 
-    //step 14: wrist back to horizontal, open the claw 50 deg wider (7 deg less than the other matchloader approaches), drive 12 in into the matchloader, clamp, back up 7 in
+    //step 14: wrist back to horizontal, open the claw 50 deg wider (7 deg less than the other matchloader approaches), drive into the matchloader, clamp, back up 8 in
     endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);
-    endEffector.openClaw(0);
+    endEffector.openClaw(-15);
     pros::delay(200);
-    chassis.moveToPoint(chassis.getPose().x + 1.36, chassis.getPose().y - 11.92, timeoutMs, {.maxSpeed = 36}, false);    //12 in along 173.5
+    drivetrain.pushUntilStall(36, 2500, 180, cfg::loaderDriveIn);    //stops on the loader (or at the depth cap), no waiting out a timeout
+    loaderPose("stalled");
     endEffector.closeClaw(30);
     pros::delay(300);
-    liftWhenClear(cfg::goalScoreRotations[4], 1);
-    backStraight(7, {.forwards = false, .maxSpeed = 114, .minSpeed = 20, .earlyExitRange = 1}, timeoutMs);
+    liftWhenClear(cfg::goalScoreRotations[4], 1, true);    //5th score: wrist up while the elevator climbs
+    backStraight(8, {.forwards = false, .maxSpeed = 114, .minSpeed = 20, .earlyExitRange = 1}, timeoutMs);
 
-    //step 15: turn to -90, drive 29.5 in to the goal (elevator rising) at speed 45, then drop hard to speed 35 for the last 4 in, score
+    //step 15: turn to -90, drive to the goal (elevator rising), then slow for the last 4 in, score
     elevator.requestHeight(cfg::goalScoreRotations[4]);
     chassis.turnToHeading(-90, timeoutMs, {.maxSpeed = 114}, false);
-    lemlib::Pose beforeStep15 {chassis.getPose()};
-    driveSlowEnd(-29.5, 0, 4, 32, 41, 500);
+    driveSlowEnd(-goalRunIn, 0, 4, 32, 50, 500);
     score(4, -90, 0.15);
 
     //======== PIN 6: the matchloader again, scored on goal 3 at layer 2 ========
-    //step 16: raise the wrist to clear the Pin, back up to where step 15 started plus 2 in (lowering the elevator),
-    //turn to 177, drive 11.5 in into the matchloader, clamp, back up 7 in
+    //step 16: raise the wrist to clear the Pin, back up to the loader row (lowering the elevator),
+    //turn to the loader, drive into the matchloader, clamp, back up 8 in
     endEffector.pivotTo(config::endeffector::pivotPreloadDeg + 70);
     intakeWhenClear();
-    chassis.moveToPoint(beforeStep15.x + scoreShiftX + 2,beforeStep15.y + scoreShiftY, timeoutMs, {.forwards = false, .maxSpeed = 57}, false);
+    chassis.moveToPoint(cfg::loaderLineFromGoalIn, 0, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);
     endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
-    chassis.turnToHeading(177, timeoutMs, {.maxSpeed = 57}, false);
+    chassis.turnToHeading(180, timeoutMs, {.maxSpeed = 63}, false);
     endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);
-    endEffector.openClaw(7);
+    endEffector.openClaw(-8);
     pros::delay(200);
-    chassis.moveToPoint(chassis.getPose().x, chassis.getPose().y - 11.5, timeoutMs, {.maxSpeed = 32}, false);
+    drivetrain.pushUntilStall(36, 2500, 180, cfg::loaderDriveIn);    //stops on the loader (or at the depth cap), no waiting out a timeout
+    loaderPose("stalled");
     endEffector.closeClaw(30);
     pros::delay(300);
     liftWhenClear(cfg::goalScoreRotations[2], 1);
-    backStraight(7, {.forwards = false, .maxSpeed = 103, .minSpeed = 20, .earlyExitRange = 1}, timeoutMs);
+    backStraight(8, {.forwards = false, .maxSpeed = 114, .minSpeed = 20, .earlyExitRange = 1}, timeoutMs);
 
-    //step 17: turn to -26, drive 20 in to the goal along -26 (8.77 sideways, 17.98 ahead) at speed 45, then drop hard to speed 29 for the last 4 in, elevator rising, score
+    //step 17: turn to face Red B's center and drive to it from wherever the loader trip ended (the aim and the run come from the pose), elevator rising, score
     elevator.requestHeight(cfg::goalScoreRotations[2]);
-    chassis.turnToHeading(-26, timeoutMs, {.maxSpeed = 103}, false);
-    driveSlowEnd(-8.77, 17.98, 4, 29, 45, 500);
-    score(2, -26, 0.25);
+    driveToGoal(cfg::redBFromRedAX, cfg::redBFromRedAY);
+    score(2, -32, 0.25);
 
-    //step 18: back up 18 in (lowering the elevator), turn to -180, drive 8.25 in into the matchloader, clamp, back up 8 in
-    intakeWhenClear();
-    backStraight(18, {.forwards = false, .maxSpeed = 103}, timeoutMs);
-    endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
-    chassis.turnToHeading(-180, timeoutMs, {.maxSpeed = 103}, false);
-    endEffector.openClaw(7);
-    pros::delay(200);
-    chassis.moveToPoint(chassis.getPose().x, chassis.getPose().y - 8.25, timeoutMs, {.maxSpeed = 32}, false);
-    endEffector.closeClaw(30);
-    pros::delay(300);
-    liftWhenClear(cfg::goalScoreRotations[3], 1);
-    backStraight(8, {.forwards = false, .maxSpeed = 103, .minSpeed = 20, .earlyExitRange = 1}, timeoutMs);
+    //steps 18-19 and 20-21: Pins 7 and 8 from the loader, scored on Red B at layers 3 and 4. each trip runs in the frame
+    //score() just set on Red B (goal at (0, 0)), so both are the same motion
+    for(int layer : {3, 4}){
+        //back up (lowering the elevator) to the point 23.11 in off the wall level with the loader row, turn to the
+        //loader, drive into the matchloader, clamp, back up 8 in. a straight 18 in back-out along the scoring heading ended
+        //about 6.6 in from the bottom wall and the turn hit it, this ends 11.44 in from it
+        intakeWhenClear();
+        chassis.moveToPoint(cfg::redBLoaderRowX, cfg::redBLoaderBackY, timeoutMs, {.forwards = false, .maxSpeed = 103}, false);
+        endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
+        chassis.turnToHeading(180, timeoutMs, {.maxSpeed = 103}, false);
+        endEffector.openClaw(-8);
+        pros::delay(200);
+        loaderPose("start");
+        //drives until the robot stalls on the loader instead of a fixed distance: this trip starts from the Red B frame,
+        //whose position error is bigger, and a fixed distance fell short of the loader
+        drivetrain.pushUntilStall(36, 2500, 180);
+        loaderPose("stalled");
+        endEffector.closeClaw(30);
+        pros::delay(300);
+        liftWhenClear(cfg::goalScoreRotations[layer], 1, layer == 4);    //5th score: wrist up while the elevator climbs
+        backStraight(8, {.forwards = false, .maxSpeed = 103, .minSpeed = 20, .earlyExitRange = 1}, timeoutMs);
 
-    //step 19: turn to -26 (6 deg left of -20), drive 19 in to the goal along -26 (8.33 sideways, 17.08 ahead) at speed 45, then drop hard to speed 29 for the last 4 in, elevator rising, score at layer 3
-    elevator.requestHeight(cfg::goalScoreRotations[3]);
-    chassis.turnToHeading(-26, timeoutMs, {.maxSpeed = 103}, false);
-    driveSlowEnd(-8.33, 17.08, 4, 29, 45, 500);
-    score(3, -26, 0.25);
+        //turn to face Red B's center and drive to it, elevator rising, score
+        elevator.requestHeight(cfg::goalScoreRotations[layer]);
+        driveToGoal(0, 0);
+        score(layer, -32, 0.25);
+    }
 
-    //step 20: back out 8 in (lowering the elevator), close the claw, turn left 26 deg to -52, raise the claw 90 deg, drive 55 in forward along -52 (43.34 sideways to the left, 33.86 ahead)
-    intakeWhenClear();
-    backStraight(8, {.forwards = false, .maxSpeed = 103}, timeoutMs);
-    endEffector.closeClaw();
-    chassis.turnToHeading(-52, timeoutMs, {.maxSpeed = 103}, false);
-    endEffector.pivotTo(config::endeffector::pivotHorizontalDeg + 90);    //the claw swings up 90 deg from horizontal before the drive
-    chassis.moveToPoint(chassis.getPose().x - 43.34, chassis.getPose().y + 33.86, timeoutMs, {.maxSpeed = 80}, false);
+    //step 22: back out 8 in (lowering the elevator), close the claw, turn left 26 deg to -52, raise the claw 90 deg, drive 55 in forward along -52 (43.34 sideways to the left, 33.86 ahead)
+    // intakeWhenClear();
+    // backStraight(8, {.forwards = false, .maxSpeed = 103}, timeoutMs);
+    // endEffector.closeClaw();
+    // chassis.turnToHeading(-52, timeoutMs, {.maxSpeed = 103}, false);
+    // endEffector.pivotTo(config::endeffector::pivotHorizontalDeg + 90);    //the claw swings up 90 deg from horizontal before the drive
+    // chassis.moveToPoint(chassis.getPose().x - 43.34, chassis.getPose().y + 33.86, timeoutMs, {.maxSpeed = 80}, false);
+    
 }
