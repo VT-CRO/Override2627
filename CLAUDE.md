@@ -24,6 +24,7 @@ src/subsystems/           Drivetrain, Elevator, EndEffector (each class owns its
 src/auton/                Auton: routine selector, shared helpers (auton.cpp) and the skills run (skills.cpp)
 src/tune/                 Auto-tune / sysID code, defined as methods of the subsystem it tunes
 include/<same folders>    Headers
+docs/                     game-basics.md (VEX U Override rules/scoring) and field-coordinates.md (element positions); read before writing autons
 include/config/           All ports and tuning numbers, one header per area (namespace config::<area>):
                           ports, drivetrain, elevator, endeffector, auton
 skills.cpp.bak            Old backup of the skills routine, not built
