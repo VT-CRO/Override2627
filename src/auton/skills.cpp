@@ -50,14 +50,14 @@ void Auton::skills(){
     lap("s3back");
     elevator.requestHeight(1.36);    //the height for the pin 2 pickup, was 1.36, then 0.2 higher (1.56), then 0.15 lower (1.41), 0.1 lower (1.31), 0.15 higher (1.46), now 0.1 lower
     chassis.tank(0, 0, true);
+    endEffector.openClaw(3);    //was -2, 5 deg wider
     pros::delay(150);    //let the robot stop before turning
     chassis.turnToHeading(65, 4000, {.maxSpeed = 73}, false);
     std::printf("step 3 turn ended at heading %.2f (asked for 65)\n", chassis.getPose().theta);
     endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);    //the claw goes down now that it faces the stack
     lap("s3turn");
 
-    //step 4: open the claw, drive 4.9 in to the stack along 65 (4.44 sideways, 2.07 ahead), clamp, turn to the goal
-    endEffector.openClaw(3);    //was -2, 5 deg wider
+    //step 4: drive 4.9 in to the stack along 65 (4.44 sideways, 2.07 ahead), clamp, turn to the goal
     chassis.moveToPoint(chassis.getPose().x + 4.44, chassis.getPose().y + 2.07, timeoutMs, {.maxSpeed = 50}, false);
     lap("s4drive");
     endEffector.closeClaw();
@@ -73,16 +73,15 @@ void Auton::skills(){
     lap("s5score");
 
     //======== PIN 3: the matchloader, scored on goal 2 at layer 2 ========
-    //step 6: raise the elevator to clear the Pin, back up away from the goal (lowering the elevator), turn to 177
-    double clearHeight {cfg::goalScoreRotations[1] - cfg::scoreDropRotations + 0.75};
-    elevator.requestHeight(clearHeight);
-    waitElevatorNear(clearHeight, 0.1);
+    //step 6: raise the wrist to clear the Pin, back up away from the goal (lowering the elevator), turn to 177
+    endEffector.pivotTo(config::endeffector::pivotPreloadDeg + 70);    //same wrist raise as after the preload
     intakeWhenClear();
     chassis.moveToPoint(chassis.getPose().x+25, chassis.getPose().y+2, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);
     endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
     chassis.turnToHeading(175, timeoutMs, {.maxSpeed = 63}, false);
 
-    //step 7: open the claw for the matchloader (50 deg wider than it was)
+    //step 7: wrist back to horizontal, open the claw for the matchloader (50 deg wider than it was)
+    endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);
     endEffector.openClaw(7);
     pros::delay(200);    //let the claw finish opening
 
@@ -101,16 +100,15 @@ void Auton::skills(){
     score(2, -92, 0.15);
 
     //======== PIN 4: the matchloader again, scored on goal 2 at layer 3 ========
-    //step 10: raise the elevator to clear the Pin, back up to where step 9 started plus 1 in (lowering the elevator), turn to 177
-    double lift {cfg::goalScoreRotations[2] - cfg::scoreDropRotations + 0.5};
-    elevator.requestHeight(lift);
-    waitElevatorNear(lift, 0.1);
+    //step 10: raise the wrist to clear the Pin, back up to where step 9 started plus 1 in (lowering the elevator), turn to 177
+    endEffector.pivotTo(config::endeffector::pivotPreloadDeg + 70);
     intakeWhenClear();
     chassis.moveToPoint(beforeStep9.x + scoreShiftX + 1, beforeStep9.y + scoreShiftY, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);
     endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
     chassis.turnToHeading(177, timeoutMs, {.maxSpeed = 63}, false);
 
-    //step 11: open the claw 50 deg wider, drive 11.55 in into the matchloader, clamp, back up 7 in
+    //step 11: wrist back to horizontal, open the claw 50 deg wider, drive 11.55 in into the matchloader, clamp, back up 7 in
+    endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);
     endEffector.openClaw(7);
     pros::delay(200);
     chassis.moveToPoint(chassis.getPose().x, chassis.getPose().y - 11.55, timeoutMs, {.maxSpeed = 36}, false);
@@ -127,16 +125,15 @@ void Auton::skills(){
     score(3, -92, 0.15);
 
     //======== PIN 5: the matchloader again, scored on goal 2 at layer 4 ========
-    //step 13: raise the elevator to clear the Pin, back up to where step 12 started minus 1.25 in (lowering the elevator), turn to 173.5
-    double secondLift {cfg::goalScoreRotations[3] - cfg::scoreDropRotations + 0.5};
-    elevator.requestHeight(secondLift);
-    waitElevatorNear(secondLift, 0.1);
+    //step 13: raise the wrist to clear the Pin, back up to where step 12 started minus 1.25 in (lowering the elevator), turn to 173.5
+    endEffector.pivotTo(config::endeffector::pivotPreloadDeg + 70);
     intakeWhenClear();
     chassis.moveToPoint(beforeStep12.x + scoreShiftX - 1.25, beforeStep12.y + scoreShiftY, timeoutMs, {.forwards = false, .maxSpeed = 63}, false);
     endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
     chassis.turnToHeading(175, timeoutMs, {.maxSpeed = 63}, false);    //3.5 deg left of 177
 
-    //step 14: open the claw 50 deg wider (7 deg less than the other matchloader approaches), drive 12 in into the matchloader, clamp, back up 7 in
+    //step 14: wrist back to horizontal, open the claw 50 deg wider (7 deg less than the other matchloader approaches), drive 12 in into the matchloader, clamp, back up 7 in
+    endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);
     endEffector.openClaw(0);
     pros::delay(200);
     chassis.moveToPoint(chassis.getPose().x + 1.36, chassis.getPose().y - 11.92, timeoutMs, {.maxSpeed = 36}, false);    //12 in along 173.5
@@ -153,15 +150,14 @@ void Auton::skills(){
     score(4, -90, 0.15);
 
     //======== PIN 6: the matchloader again, scored on goal 3 at layer 2 ========
-    //step 16: raise the elevator to clear the Pin, back up to where step 15 started plus 2 in (lowering the elevator),
+    //step 16: raise the wrist to clear the Pin, back up to where step 15 started plus 2 in (lowering the elevator),
     //turn to 177, drive 11.5 in into the matchloader, clamp, back up 7 in
-    double thirdLift {cfg::goalScoreRotations[4] - cfg::scoreDropRotations + 0.5};
-    elevator.requestHeight(thirdLift);
-    waitElevatorNear(thirdLift, 0.1);
+    endEffector.pivotTo(config::endeffector::pivotPreloadDeg + 70);
     intakeWhenClear();
     chassis.moveToPoint(beforeStep15.x + scoreShiftX + 2,beforeStep15.y + scoreShiftY, timeoutMs, {.forwards = false, .maxSpeed = 57}, false);
     endEffector.closeClaw();    //after the back-out, close the claw fully; it opens to the pickup width below
     chassis.turnToHeading(177, timeoutMs, {.maxSpeed = 57}, false);
+    endEffector.pivotTo(config::endeffector::pivotHorizontalDeg);
     endEffector.openClaw(7);
     pros::delay(200);
     chassis.moveToPoint(chassis.getPose().x, chassis.getPose().y - 11.5, timeoutMs, {.maxSpeed = 32}, false);
